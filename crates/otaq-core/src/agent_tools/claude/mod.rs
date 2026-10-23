@@ -99,21 +99,22 @@ impl ClaudeCode {
         prompt.text(self)
     }
 
-    /// Otaq's status-line settings file for the session (USG-04). Without it the agent still starts; only the
-    /// limit windows in Activity miss data.
+    /// Otaq's settings file for the session: its status line (USG-04) and the theme's kind (d0117 point 4). Without
+    /// it the agent still starts; the limit windows in Activity miss data, and the theme is left to Claude Code.
     fn settings(&self, launch: &LaunchContext, request: &LaunchRequest) -> Option<PathBuf> {
         let data = &self.context.data;
         let path = match (request.role, &request.ticket) {
             (LaunchRole::ProjectAgent | LaunchRole::EpicLead, _) | (_, None) => {
-                statusline::project_agent_settings_path(data, &request.project)
+                statusline::project_agent_settings_path(data, &request.project, request.theme)
             }
-            (_, Some(ticket)) => statusline::settings_path(data, ticket),
+            (_, Some(ticket)) => statusline::settings_path(data, ticket, request.theme),
         };
         statusline::write_settings_at(
             path,
             &request.cwd,
             launch.claude.config_dir.as_deref(),
             &launch.bin_dir,
+            request.theme,
         )
         .inspect_err(|e| tracing::warn!(project = %request.project, error = %e, "can't write the status-line settings"))
         .ok()
@@ -507,6 +508,7 @@ mod tests {
             model: None,
             title: None,
             effort: None,
+            theme: crate::agent_tools::ThemeKind::Dark,
         }
     }
 
@@ -599,7 +601,11 @@ mod tests {
     fn a_ticket_agent_launches_as_today() {
         let f = fixture();
         let plan = f.adapter.launch(&request(LaunchRole::TicketAgent)).unwrap();
-        let settings = statusline::settings_path(&f.adapter.context.data, &key());
+        let settings = statusline::settings_path(
+            &f.adapter.context.data,
+            &key(),
+            crate::agent_tools::ThemeKind::Dark,
+        );
         assert!(settings.is_file());
         let today = launch::launch_agent(
             &launch_context(),

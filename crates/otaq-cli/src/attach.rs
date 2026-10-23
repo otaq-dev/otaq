@@ -168,12 +168,15 @@ async fn request_attach(
 ) -> Result<SessionAttach, ErrorBody> {
     let no_session = || ErrorBody::new(ErrorKind::NotFound, format!("{key} has no live session"));
     let reply = client
-        .request(Request::SessionAttach(SessionTarget {
-            session: None,
-            key: Some(key.to_string()),
-            stage: stage.map(str::to_owned),
-            ..Default::default()
-        }))
+        .request(Request::SessionAttach(
+            SessionTarget {
+                session: None,
+                key: Some(key.to_string()),
+                stage: stage.map(str::to_owned),
+                ..Default::default()
+            }
+            .into(),
+        ))
         .await;
     match reply {
         Ok(Reply::SessionAttached(attached)) if attached.session.is_running() => Ok(*attached),

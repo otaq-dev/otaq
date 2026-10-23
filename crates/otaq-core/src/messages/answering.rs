@@ -292,6 +292,7 @@ impl Messages {
                 model: runs_on.model,
                 effort: runs_on.effort.clone(),
                 title: Some(target.title.clone()),
+                theme: board.theme_in_use().await.kind(),
             },
         )?;
         let session = inner

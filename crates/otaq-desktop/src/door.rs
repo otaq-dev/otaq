@@ -34,9 +34,10 @@ async fn attach_terminal(
     app: AppState<'_>,
     session: String,
     channel: Channel<Value>,
+    read_only: bool,
 ) -> Result<u64, String> {
     let sink = Box::new(move |feed| channel.send(feed).is_ok());
-    crate::terminal::attach(&app, &session, sink).await
+    crate::terminal::attach(&app, &session, !read_only, sink).await
 }
 
 /// The system folder picker (Add project, T-0233): the folder chosen, or `None` when cancelled.

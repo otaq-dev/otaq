@@ -30,9 +30,11 @@ pub(super) async fn handle(
             };
             Ok((Reply::Sessions(list), Then::Continue))
         }
-        Request::SessionAttach(target) => {
-            let id = session_id(shared, target).await?;
-            let attached = sessions.attach(&id).map_err(session_error)?;
+        Request::SessionAttach(p) => {
+            let id = session_id(shared, p.target).await?;
+            let (attached, answers) = sessions
+                .attach_answering(&id, !p.quiet)
+                .map_err(session_error)?;
             let reply = Reply::SessionAttached(Box::new(SessionAttach {
                 session: attached.info,
                 scrollback: encode_bytes(&attached.scrollback),
@@ -44,6 +46,7 @@ pub(super) async fn handle(
                 Then::Attach {
                     session: id,
                     output: attached.output,
+                    answers,
                 },
             ))
         }

@@ -352,7 +352,7 @@ mod tests {
 
         std::fs::write(gate(1), "").unwrap();
         let screen = Screen::default();
-        let attach = crate::terminal::attach(&h.app, &session, screen.sink())
+        let attach = crate::terminal::attach(&h.app, &session, true, screen.sink())
             .await
             .unwrap();
         screen
@@ -394,13 +394,99 @@ mod tests {
         h.service.stop_all().await;
     }
 
+    /// A shell line asking the terminal for its background, reading what comes back within a second and printing
+    /// it in hex after `seen-<marker>:` (written in two pieces, so the typed command line doesn't contain it).
+    fn ask_background(marker: &str) -> String {
+        format!(
+            "stty -icanon -echo min 0 time 10; printf '\\033]11;?\\007'; sleep 1; \
+             a=$(dd bs=256 count=1 2>/dev/null | od -An -tx1 | tr -d ' \\n'); stty sane; \
+             echo \"seen\"\"-{marker}:$a.\"\r"
+        )
+    }
+
+    /// d0117 point 4: a program's colour question gets exactly one answer. A read-only terminal (an epic lead's)
+    /// doesn't answer, so the service does, with the theme's background (Otaq Dark, none picked yet); a terminal
+    /// that answers keeps the service silent (this page stands in for xterm.js and answers nothing, so the program
+    /// reads nothing).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_read_only_terminal_leaves_the_colour_answer_to_the_service() {
+        let h = Harness::new(None);
+        let repos = TempRepos::new();
+        let session = project_terminal(&h, &repos).await;
+        let answer = b"\x1b]11;rgb:0a0a/0b0b/0d0d\x07"
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        for (read_only, expected) in [(true, answer.as_str()), (false, "")] {
+            let marker = format!("seen-{read_only}");
+            let ask = ask_background(&read_only.to_string());
+            let screen = Screen::default();
+            let attach = crate::terminal::attach(&h.app, &session, !read_only, screen.sink())
+                .await
+                .unwrap();
+            screen
+                .wait_for("live", |s| s.phases().last().is_some_and(|p| p == "live"))
+                .await;
+            type_text(&h, &session, &ask, false).await;
+            screen
+                .wait_for(&marker, |s| s.text().contains(&format!("{marker}:")))
+                .await;
+            assert!(
+                screen.text().contains(&format!("{marker}:{expected}.")),
+                "{}",
+                screen.text()
+            );
+            request(&h.app, "terminal.detach", json!({ "attach": attach }))
+                .await
+                .unwrap();
+        }
+
+        // A read-only terminal and one that answers show the session; the one that answers closes: the service
+        // answers again.
+        let read_only = Screen::default();
+        let watching = crate::terminal::attach(&h.app, &session, false, read_only.sink())
+            .await
+            .unwrap();
+        let answering = Screen::default();
+        let closing = crate::terminal::attach(&h.app, &session, true, answering.sink())
+            .await
+            .unwrap();
+        for screen in [&read_only, &answering] {
+            screen
+                .wait_for("live", |s| s.phases().last().is_some_and(|p| p == "live"))
+                .await;
+        }
+        request(&h.app, "terminal.detach", json!({ "attach": closing }))
+            .await
+            .unwrap();
+        type_text(
+            &h,
+            &session,
+            &ask_background("after"),
+            false,
+        )
+        .await;
+        read_only
+            .wait_for("seen-after", |s| s.text().contains("seen-after:"))
+            .await;
+        assert!(
+            read_only.text().contains(&format!("seen-after:{answer}.")),
+            "{}",
+            read_only.text()
+        );
+        request(&h.app, "terminal.detach", json!({ "attach": watching }))
+            .await
+            .unwrap();
+        h.service.stop_all().await;
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn typing_paste_and_resize_reach_the_pty_and_the_unsent_flag() {
         let h = Harness::new(None);
         let repos = TempRepos::new();
         let session = project_terminal(&h, &repos).await;
         let screen = Screen::default();
-        crate::terminal::attach(&h.app, &session, screen.sink())
+        crate::terminal::attach(&h.app, &session, true, screen.sink())
             .await
             .unwrap();
         screen
@@ -466,7 +552,7 @@ mod tests {
         let session = project_terminal(&h, &repos).await;
         type_text(&h, &session, "echo before-the-drop\r", false).await;
         let screen = Screen::default();
-        crate::terminal::attach(&h.app, &session, screen.sink())
+        crate::terminal::attach(&h.app, &session, true, screen.sink())
             .await
             .unwrap();
         screen

@@ -971,6 +971,7 @@ impl Starter {
                     model: runs_on.model,
                     effort: runs_on.effort.clone(),
                     title: Some(ticket.title.clone()),
+                    theme: inner.board.theme_in_use().await.kind(),
                 },
             )
             .map_err(|e| StartError::Other(e.to_string()))?;

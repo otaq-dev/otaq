@@ -112,6 +112,39 @@ impl Theme {
         )
     }
 
+    /// Light or dark (d0070): what every agent tool is told at start (d0117 point 4).
+    pub fn kind(self) -> ThemeKind {
+        if self.is_dark() {
+            ThemeKind::Dark
+        } else {
+            ThemeKind::Light
+        }
+    }
+
+    /// The terminal's text and background (`term-fg`, `term-bg`) as `0xRRGGBB`: what the service answers a
+    /// program's colour questions with while no terminal shows the session (d0117 point 4). The design's values,
+    /// copied from the app's tokens (`otaq-view`'s theme, which checks they stay the same).
+    pub fn terminal_colors(self) -> TerminalColors {
+        let (fg, bg) = match self {
+            Self::OtaqDark => (0xD6D8DD, 0x0A0B0D),
+            Self::CatppuccinFrappe => (0xC6D0F5, 0x303446),
+            Self::CatppuccinMacchiato => (0xCAD3F5, 0x24273A),
+            Self::CatppuccinMocha => (0xCDD6F4, 0x1E1E2E),
+            Self::TokyoNight => (0xC0CAF5, 0x1A1B26),
+            Self::Dracula => (0xF8F8F2, 0x282A36),
+            Self::Nord => (0xD8DEE9, 0x2E3440),
+            Self::GruvboxDark => (0xEBDBB2, 0x282828),
+            Self::RosePine => (0xE0DEF4, 0x191724),
+            Self::OneDark => (0xABB2BF, 0x282C34),
+            Self::OtaqLight => (0x2A2C31, 0xFAFAF8),
+            Self::CatppuccinLatte => (0x4C4F69, 0xEFF1F5),
+            Self::Daylight => (0x1F2328, 0xF6F8FA),
+            Self::SolarizedLight => (0x657B83, 0xFDF6E3),
+            Self::RosePineDawn => (0x575279, 0xFAF4ED),
+        };
+        TerminalColors { fg, bg }
+    }
+
     /// A theme stored by d0069 as a dark or light theme, where both Otaq versions were `otaq`. A name
     /// this version doesn't know, or one of the other kind, reads as Otaq.
     fn from_0069(value: Option<&Value>, dark: bool) -> Self {
@@ -151,7 +184,27 @@ impl Default for ThemeSetting {
     }
 }
 
+/// A theme's kind (d0070).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThemeKind {
+    Light,
+    Dark,
+}
+
+/// A theme's terminal text and background colours, as `0xRRGGBB` ([`Theme::terminal_colors`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalColors {
+    pub fg: u32,
+    pub bg: u32,
+}
+
 impl ThemeSetting {
+    /// The theme in use, as the service sees it: the picked one. Before one is picked (a fresh install, until the
+    /// app's first start stores the theme for the OS) the service, which can't see the OS, takes the dark one.
+    pub fn in_use(self) -> Theme {
+        self.resolve(true)
+    }
+
     /// The theme to use, given whether the OS is dark.
     pub fn resolve(self, os_dark: bool) -> Theme {
         match self {
@@ -675,6 +728,19 @@ impl Board {
             );
         }
         Ok(read_or_default(Value::Object(object)))
+    }
+
+    /// The theme in use now ([`ThemeSetting::in_use`]), read when asked: what a session or launch starting now is
+    /// told (d0117 point 4). Settings that can't be read count as the default.
+    pub async fn theme_in_use(&self) -> Theme {
+        self.global_settings()
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "can't read the theme");
+                GlobalSettings::default()
+            })
+            .theme
+            .in_use()
     }
 
     /// Stores every global setting.

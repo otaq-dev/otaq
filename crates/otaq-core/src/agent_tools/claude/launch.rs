@@ -723,6 +723,7 @@ mod tests {
                 model: None,
                 title: None,
                 effort: None,
+                theme: crate::agent_tools::ThemeKind::Dark,
             }
         }
 
@@ -739,6 +740,7 @@ mod tests {
                 model: None,
                 title: None,
                 effort: None,
+                theme: crate::agent_tools::ThemeKind::Dark,
             }
         }
 
@@ -795,7 +797,8 @@ mod tests {
                     skill(WORK_TICKET_SKILL, None),
                 ))
                 .unwrap();
-            let settings = statusline::settings_path(&f.data, &key());
+            let settings =
+                statusline::settings_path(&f.data, &key(), crate::agent_tools::ThemeKind::Dark);
             assert!(settings.is_file());
             let id = new_id(&plan);
             assert_eq!(plan.program, "claude");
@@ -826,7 +829,8 @@ mod tests {
             );
             request.port = 0;
             let plan = f.adapter.launch(&request).unwrap();
-            let settings = statusline::settings_path(&f.data, &key());
+            let settings =
+                statusline::settings_path(&f.data, &key(), crate::agent_tools::ThemeKind::Dark);
             let id = new_id(&plan);
             assert_eq!(plan.program, "claude");
             assert_eq!(
@@ -849,7 +853,11 @@ mod tests {
         #[test]
         fn a_project_agent_with_its_first_message_and_its_resume() {
             let f = fixture();
-            let settings = statusline::project_agent_settings_path(&f.data, "SHOP");
+            let settings = statusline::project_agent_settings_path(
+                &f.data,
+                "SHOP",
+                crate::agent_tools::ThemeKind::Dark,
+            );
             let env = env(&[
                 ("PATH".to_owned(), &path()),
                 (naming::role_env_var(), naming::ROLE_PROJECT_AGENT),
@@ -887,7 +895,11 @@ mod tests {
         #[test]
         fn an_epic_lead_with_and_without_its_first_message_and_its_resume() {
             let f = fixture();
-            let settings = statusline::project_agent_settings_path(&f.data, "SHOP");
+            let settings = statusline::project_agent_settings_path(
+                &f.data,
+                "SHOP",
+                crate::agent_tools::ThemeKind::Dark,
+            );
             let env = env(&[
                 ("PATH".to_owned(), &path()),
                 (naming::role_env_var(), naming::ROLE_EPIC_LEAD),
@@ -939,7 +951,8 @@ mod tests {
             request.port = 0;
             request.resume = Some(RESUMED.into());
             let plan = f.adapter.launch(&request).unwrap();
-            let settings = statusline::settings_path(&f.data, &key());
+            let settings =
+                statusline::settings_path(&f.data, &key(), crate::agent_tools::ThemeKind::Dark);
             assert_eq!(plan.tool_id, ToolIdMode::ChosenUpFront(RESUMED.into()));
             assert_eq!(plan.program, "claude");
             assert_eq!(
@@ -974,7 +987,8 @@ mod tests {
                 )
             };
             let plan = f.adapter.launch(&request).unwrap();
-            let settings = statusline::settings_path(&f.data, &epic);
+            let settings =
+                statusline::settings_path(&f.data, &epic, crate::agent_tools::ThemeKind::Dark);
             let id = new_id(&plan);
             assert_eq!(plan.program, "claude");
             assert_eq!(
@@ -995,7 +1009,8 @@ mod tests {
         #[test]
         fn resume_with_and_without_a_prompt() {
             let f = fixture();
-            let settings = statusline::settings_path(&f.data, &key());
+            let settings =
+                statusline::settings_path(&f.data, &key(), crate::agent_tools::ThemeKind::Dark);
             let env = env(&[
                 (naming::ticket_env_var(), "SHOP-18"),
                 ("PORT".to_owned(), "4012"),
@@ -1075,7 +1090,8 @@ mod tests {
         #[test]
         fn a_model_goes_before_the_prompt_or_last() {
             let f = fixture();
-            let settings = statusline::settings_path(&f.data, &key());
+            let settings =
+                statusline::settings_path(&f.data, &key(), crate::agent_tools::ThemeKind::Dark);
             let mut request =
                 ticket_request(LaunchRole::TicketAgent, skill(WORK_TICKET_SKILL, None));
             request.model = Some("opus".into());
@@ -1107,7 +1123,8 @@ mod tests {
         #[test]
         fn an_effort_goes_after_the_model() {
             let f = fixture();
-            let settings = statusline::settings_path(&f.data, &key());
+            let settings =
+                statusline::settings_path(&f.data, &key(), crate::agent_tools::ThemeKind::Dark);
             let mut request =
                 ticket_request(LaunchRole::TicketAgent, skill(WORK_TICKET_SKILL, None));
             request.model = Some("opus".into());

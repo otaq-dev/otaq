@@ -23,12 +23,17 @@ export async function subscribeEvents(onEvent: (event: unknown) => void): Promis
 
 /**
  * Attaches a terminal to a session over its own channel; `onFeed` gets its stored output, then live output and phase
- * changes, until `terminal.detach` with the number this resolves to.
+ * changes, until `terminal.detach` with the number this resolves to. A `readOnly` terminal doesn't answer the
+ * program's questions, so the service answers its colour questions while no other terminal does (d0117 point 4).
  */
-export function attachTerminal(session: string, onFeed: (feed: TerminalFeed) => void): Promise<number> {
+export function attachTerminal(
+  session: string,
+  onFeed: (feed: TerminalFeed) => void,
+  readOnly = false,
+): Promise<number> {
   const channel = new Channel<TerminalFeed>();
   channel.onmessage = onFeed;
-  return invoke<number>("attach_terminal", { session, channel });
+  return invoke<number>("attach_terminal", { session, channel, readOnly });
 }
 
 /** An action on the page's window: a caption button's (minimize, maximize or restore, close), or bringing it forward. */

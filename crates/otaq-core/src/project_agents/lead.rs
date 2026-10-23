@@ -747,7 +747,13 @@ impl EpicLeads {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
-                ..super::request(&project, LaunchRole::EpicLead, first_prompt)
+                ..super::request(
+                    &self.inner().board,
+                    &project,
+                    LaunchRole::EpicLead,
+                    first_prompt,
+                )
+                .await
             },
         ) {
             Ok(launched) => launched,
@@ -853,7 +859,7 @@ impl EpicLeads {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
-                ..super::request(&project, LaunchRole::EpicLead, None)
+                ..super::request(&self.inner().board, &project, LaunchRole::EpicLead, None).await
             },
         ) {
             Ok(launched) => launched,

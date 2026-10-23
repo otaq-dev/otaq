@@ -15,6 +15,7 @@
 //! exit → the row, a `session_state` event). Sessions end when their program exits, when Otaq stops them,
 //! or when the service stops; the next service start reconciles their tickets ([`crate::recovery`]).
 
+pub mod colors;
 pub mod deliveries;
 pub mod env;
 pub mod input;
@@ -34,6 +35,7 @@ use tokio::sync::{broadcast, watch};
 
 use crate::agent_tools::{PrepareStep, Tool};
 use crate::attention::{ClientId, Focus};
+use crate::board::settings::{TerminalColors, Theme, ThemeSetting};
 use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -448,6 +450,25 @@ pub struct OutputChunk {
     pub data: Arc<[u8]>,
 }
 
+/// A client's terminal that answers the program's questions, attached ([`Sessions::attach_answering`]): while
+/// one is held the service leaves the colour questions to it ([`colors`]). Dropped on detach or disconnect.
+pub struct Answering {
+    live: Arc<Live>,
+}
+
+impl fmt::Debug for Answering {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Answering")
+    }
+}
+
+impl Drop for Answering {
+    fn drop(&mut self) {
+        let mut output = self.live.output.lock().expect("session output");
+        output.answering = output.answering.saturating_sub(1);
+    }
+}
+
 /// What a client gets when it attaches: the stored output, then live chunks from `output`.
 #[derive(Debug)]
 pub struct Attached {
@@ -487,7 +508,14 @@ struct Inner {
     project_env: OnceLock<env::EnvProvider>,
     /// A ticket's own variables (d0087), set once at service start; without it ticket sessions get none.
     ticket_env: OnceLock<env::TicketEnvProvider>,
+    /// The theme in use (d0117 point 4), set once at service start; without it sessions are told the default.
+    theme: OnceLock<ThemeProvider>,
 }
+
+/// The theme in use, read when asked: set once at service start ([`Sessions::set_theme_provider`]).
+pub type ThemeProvider = Arc<
+    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = Theme> + Send>> + Send + Sync,
+>;
 
 struct Live {
     info: Mutex<SessionInfo>,
@@ -508,6 +536,9 @@ struct Live {
     /// Set when Otaq stops the session; the end reason then says so.
     stop_reason: Mutex<Option<&'static str>>,
     ended: watch::Sender<bool>,
+    /// The theme's terminal colours when the session started: the service's answer to the program's colour
+    /// questions ([`colors`]). A running session keeps them.
+    colors: TerminalColors,
 }
 
 struct Output {
@@ -515,6 +546,9 @@ struct Output {
     live: broadcast::Sender<OutputChunk>,
     /// The terminal's size, kept after the session ended (its info's size isn't), for [`screen`].
     size: TerminalSize,
+    /// The attached terminals that answer the program's questions ([`Answering`]); while there are none the
+    /// service answers its colour questions itself ([`colors`]).
+    answering: usize,
 }
 
 impl Sessions {
@@ -542,6 +576,7 @@ impl Sessions {
                 live: Mutex::new(HashMap::new()),
                 project_env: OnceLock::new(),
                 ticket_env: OnceLock::new(),
+                theme: OnceLock::new(),
             }),
         }
     }
@@ -556,6 +591,12 @@ impl Sessions {
     /// ticket (its agent, validator, answering, Run and Shell) asks `provider` for them, then.
     pub fn set_ticket_env_provider(&self, provider: env::TicketEnvProvider) {
         let _ = self.inner.ticket_env.set(provider);
+    }
+
+    /// Gives the sessions the theme in use (d0117 point 4): every spawn asks `provider`, then, and tells the
+    /// program whether it is light or dark (`COLORFGBG`) and its terminal colours ([`colors`]).
+    pub fn set_theme_provider(&self, provider: ThemeProvider) {
+        let _ = self.inner.theme.set(provider);
     }
 
     /// Marks sessions left running by a service that is gone as ended (agents "service stopped", Run / Shell /
@@ -653,6 +694,14 @@ impl Sessions {
             (Some(ticket), Some(provider)) => provider(ticket.id.clone()).await,
             _ => Vec::new(),
         };
+        // The theme in use now (d0117 point 4); a running session keeps what it was told.
+        let theme = match self.inner.theme.get() {
+            Some(provider) => provider().await,
+            None => ThemeSetting::default().in_use(),
+        };
+        // COLORFGBG ("text;background" as two of the 16 colours) comes last, so a ticket's or the spec's variable
+        // of that name doesn't override what the theme is.
+        let colorfgbg = if theme.is_dark() { "15;0" } else { "0;15" };
         let own: Vec<(String, String)> = [
             ("TERM".to_owned(), term),
             ("COLORTERM".to_owned(), "truecolor".to_owned()),
@@ -660,6 +709,7 @@ impl Sessions {
         .into_iter()
         .chain(ticket_vars)
         .chain(spec.env.iter().cloned())
+        .chain([("COLORFGBG".to_owned(), colorfgbg.to_owned())])
         .collect();
         let inherited_path = command.get_env("PATH").map(ToOwned::to_owned);
         for (key, value) in env::layered(
@@ -751,10 +801,12 @@ impl Sessions {
                 scrollback: Scrollback::new(self.inner.scrollback_limit),
                 live: broadcast::channel(OUTPUT_CHANNEL).0,
                 size: spec.size,
+                answering: 0,
             }),
             input: Mutex::new(InputTracker::new()),
             stop_reason: Mutex::new(None),
             ended,
+            colors: theme.terminal_colors(),
         });
         self.inner
             .live
@@ -800,17 +852,34 @@ impl Sessions {
 
     /// The stored output and a live feed from right after it. Works for ended sessions still in memory too.
     pub fn attach(&self, id: &str) -> Result<Attached, SessionError> {
+        self.attach_answering(id, false)
+            .map(|(attached, _)| attached)
+    }
+
+    /// [`Self::attach`] for a client's terminal; with `answers` (the terminal answers the program's questions) also
+    /// the [`Answering`] that keeps the service from answering colour questions while it is held. Taken together,
+    /// so a question is answered by the terminal or by the service, never both and never neither ([`colors`]).
+    pub fn attach_answering(
+        &self,
+        id: &str,
+        answers: bool,
+    ) -> Result<(Attached, Option<Answering>), SessionError> {
         let live = self.live(id)?;
         let info = live.info.lock().expect("session info").clone();
-        let output = live.output.lock().expect("session output");
+        let mut output = live.output.lock().expect("session output");
         let (scrollback, start) = output.scrollback.contents();
-        Ok(Attached {
+        let attached = Attached {
             info,
             end: output.scrollback.end(),
             scrollback,
             start,
             output: output.live.subscribe(),
-        })
+        };
+        let answering = answers.then(|| {
+            output.answering += 1;
+            Answering { live: live.clone() }
+        });
+        Ok((attached, answering))
     }
 
     /// Resizes the PTY; the program gets SIGWINCH.
@@ -1500,6 +1569,7 @@ fn read_output(
     // The service answers that first question itself (top left), so a session runs before any terminal attaches,
     // and keeps it out of the scrollback, so no attached terminal answers it a second time.
     let mut startup_query = if cfg!(windows) { 4 } else { 0 };
+    let mut queries = colors::QueryScanner::default();
     loop {
         match reader.read(&mut buf) {
             Ok(0) => break,
@@ -1517,10 +1587,23 @@ fn read_output(
                         continue;
                     }
                 }
+                let asked = queries.scan(&chunk);
                 let data: Arc<[u8]> = Arc::from(chunk.as_slice());
                 let mut output = live.output.lock().expect("session output");
                 let offset = output.scrollback.push(&data);
                 let _ = output.live.send(OutputChunk { offset, data });
+                // Decided under the lock attaches take: a terminal attaching from now on sees these questions
+                // only in its replay, and doesn't answer them.
+                let answer: Vec<u8> = if output.answering == 0 {
+                    asked.iter().flat_map(|q| q.answer(live.colors)).collect()
+                } else {
+                    Vec::new()
+                };
+                drop(output);
+                if !answer.is_empty() {
+                    let mut writer = live.writer.lock().expect("session writer");
+                    let _ = writer.write_all(&answer).and_then(|()| writer.flush());
+                }
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             // macOS reports EIO once the program and its children closed the terminal.

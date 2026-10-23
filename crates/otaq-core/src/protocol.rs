@@ -746,7 +746,7 @@ pub enum Request {
     /// Attaching again on the same connection keeps the live output already flowing, so its events may come
     /// before the reply or start before the reply's `end`: skip by offset. Answered with [`Reply::SessionAttached`].
     #[serde(rename = "session.attach")]
-    SessionAttach(SessionTarget),
+    SessionAttach(AttachParams),
     /// Stops the live output started by `session.attach`; the session keeps running. Answered with
     /// [`Reply::Ok`].
     #[serde(rename = "session.detach")]
@@ -1820,6 +1820,28 @@ pub struct SessionTarget {
     /// A project's key, for its Project terminal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+}
+
+/// `session.attach`: the session, and whether this client's terminal stays silent to the program's questions.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttachParams {
+    #[serde(flatten)]
+    pub target: SessionTarget,
+    /// The terminal doesn't answer the program's questions (a read-only view). While no terminal of any client
+    /// answers, the service answers the colour questions itself (d0117 point 4). The latest attach of a session
+    /// on a connection says it for that connection.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub quiet: bool,
+}
+
+impl From<SessionTarget> for AttachParams {
+    /// An attach whose terminal answers the program's questions.
+    fn from(target: SessionTarget) -> Self {
+        Self {
+            target,
+            quiet: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -41,6 +41,7 @@ describe("the door", () => {
     expect(eventCall?.[0]).toBe("subscribe_events");
     expect(terminalCall?.[0]).toBe("attach_terminal");
     expect(terminalCall?.[1].session).toBe("s1");
+    expect(terminalCall?.[1].readOnly).toBe(false);
     (eventCall?.[1].channel as InstanceType<typeof tauri.Channel>).onmessage({ kind: "resync" });
     (terminalCall?.[1].channel as InstanceType<typeof tauri.Channel>).onmessage({
       kind: "live",
@@ -48,6 +49,12 @@ describe("the door", () => {
     });
     expect(events).toEqual([{ kind: "resync" }]);
     expect(feeds).toEqual([{ kind: "live", data: "aGk=" }]);
+  });
+
+  it("tells the service a read-only terminal doesn't answer the program", async () => {
+    tauri.invoke.mockResolvedValueOnce(8);
+    await attachTerminal("s2", () => undefined, true);
+    expect(tauri.invoke.mock.calls.at(-1)?.[1]).toMatchObject({ session: "s2", readOnly: true });
   });
 
   it("sends a caption button's action to the window, and names Tauri's drag region", async () => {

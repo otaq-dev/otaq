@@ -541,6 +541,14 @@ impl Service {
                 })
             }));
         }
+        // Every session is told the theme in use when it starts (d0117 point 4).
+        {
+            let board = board.clone();
+            sessions.set_theme_provider(Arc::new(move || {
+                let board = board.clone();
+                Box::pin(async move { board.theme_in_use().await })
+            }));
+        }
         // Warm builds (d0082): what a crash left half-done goes first, then the disk is probed once.
         let trash = recovery::remove_interrupted_warm_work(data).await;
         let warm = crate::warm::store::WarmBuilds::new(

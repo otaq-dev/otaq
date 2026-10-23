@@ -699,6 +699,7 @@ impl Prs {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 title: Some(epic.title.clone()),
+                theme: self.inner.board.theme_in_use().await.kind(),
             },
         )?;
         self.spawn(epic, SessionKind::Delivery, launched, &runs_on, start)
@@ -1007,6 +1008,7 @@ impl Prs {
                 model: runs_on.model.clone(),
                 effort: runs_on.effort.clone(),
                 title: Some(ticket.title.clone()),
+                theme: self.inner.board.theme_in_use().await.kind(),
             },
         )?;
         self.spawn(ticket, kind, launched, &runs_on, start).await

@@ -9,6 +9,10 @@
 //! about it). A gap in the live output (the event queue overflowed) reattaches too.
 //!
 //! Input, resize and focus are plain requests (`api/terminal.rs`); [`Terminals::detach`] ends an attach.
+//!
+//! **Answers to the program** (d0117 point 4). A read-only terminal doesn't answer the program's questions. The app
+//! has one connection, so each attach tells the service whether *any* terminal of the page showing the session
+//! answers (`quiet` when none does): while none does, the service answers the colour questions itself.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,7 +21,8 @@ use std::time::Duration;
 
 use otaq_core::client::{Client, ClientError, ConnectionState};
 use otaq_core::protocol::{
-    ErrorKind, Event, Reply, Request, SessionIdParams, SessionTarget, decode_bytes, encode_bytes,
+    AttachParams, ErrorKind, Event, Reply, Request, SessionIdParams, SessionTarget, decode_bytes,
+    encode_bytes,
 };
 use otaq_core::session::{SessionKind, SessionState};
 use otaq_view::terminal::Phase;
@@ -96,11 +101,13 @@ impl Follow {
 #[derive(Default)]
 pub struct Terminals {
     next: AtomicU64,
-    attached: Mutex<HashMap<u64, Attached>>,
+    attached: Arc<Mutex<HashMap<u64, Attached>>>,
 }
 
 struct Attached {
     session: String,
+    /// The terminal answers the program's questions (it isn't read-only).
+    answers: bool,
     /// The session's kind once the service answered the attach.
     kind: Arc<Mutex<Option<SessionKind>>>,
     task: tokio::task::JoinHandle<()>,
@@ -126,49 +133,84 @@ impl Terminals {
     }
 
     /// Ends an attach: its channel gets nothing more. The service stops sending the session's output to this app
-    /// once no other terminal of the page shows it. The session keeps running.
+    /// once no other terminal of the page shows it. The session keeps running. When the last terminal of the
+    /// session that answered the program goes and read-only ones stay, the service hears that this app's
+    /// terminals no longer answer.
     pub async fn detach(&self, app: &App, attach: u64) {
-        let session = {
+        let request = {
             let mut attached = self.lock();
             let Some(gone) = attached.remove(&attach) else {
                 return;
             };
             let session = gone.session.clone();
-            (!attached.values().any(|a| a.session == session)).then_some(session)
+            let others: Vec<bool> = attached
+                .values()
+                .filter(|a| a.session == session)
+                .map(|a| a.answers)
+                .collect();
+            if others.is_empty() {
+                Some(Request::SessionDetach(SessionIdParams { session }))
+            } else if gone.answers && !others.contains(&true) {
+                Some(Request::SessionAttach(AttachParams {
+                    target: SessionTarget {
+                        session: Some(session),
+                        ..SessionTarget::default()
+                    },
+                    quiet: true,
+                }))
+            } else {
+                None
+            }
         };
-        if let Some(session) = session {
-            let _ = app
-                .service
-                .send(Request::SessionDetach(SessionIdParams { session }))
-                .await;
+        if let Some(request) = request {
+            let _ = app.service.send(request).await;
         }
     }
 }
 
 /// Attaches the page's terminal to `session`: `sink` gets a [`Feed`] per message, as JSON, from now until
 /// [`Terminals::detach`]. Answers the attach's number at once; the scrollback follows on the channel.
-pub async fn attach(app: &App, session: &str, sink: Sink) -> Result<u64, String> {
+/// `answers`: the terminal answers the program's questions (it isn't read-only).
+pub async fn attach(app: &App, session: &str, answers: bool, sink: Sink) -> Result<u64, String> {
     if session.is_empty() {
         return Err("no terminal session given".into());
     }
     let number = app.terminals.next.fetch_add(1, Ordering::Relaxed) + 1;
     let kind = Arc::new(Mutex::new(None));
+    // Asked at each (re)attach: quiet unless this terminal or another of the session answers.
+    let quiet: Quiet = {
+        let attached = app.terminals.attached.clone();
+        let session = session.to_owned();
+        Box::new(move || {
+            !answers
+                && !attached
+                    .lock()
+                    .expect("terminals")
+                    .values()
+                    .any(|a| a.session == session && a.answers)
+        })
+    };
     let task = tokio::spawn(follow(
         app.service.clients(),
         session.to_owned(),
         Feeder::new(sink),
         kind.clone(),
+        quiet,
     ));
     app.terminals.lock().insert(
         number,
         Attached {
             session: session.to_owned(),
+            answers,
             kind,
             task,
         },
     );
     Ok(number)
 }
+
+/// Whether the app's terminals of a session all stay silent to the program's questions, asked when attaching.
+type Quiet = Box<dyn Fn() -> bool + Send + Sync>;
 
 /// Sends feeds, leaving out a phase the page already has.
 struct Feeder {
@@ -207,6 +249,7 @@ async fn follow(
     session: String,
     mut feed: Feeder,
     kind: Arc<Mutex<Option<SessionKind>>>,
+    quiet: Quiet,
 ) {
     feed.phase(Phase::Attaching);
     let client = loop {
@@ -230,9 +273,12 @@ async fn follow(
             continue;
         };
         let attached = match client
-            .request(Request::SessionAttach(SessionTarget {
-                session: Some(session.clone()),
-                ..SessionTarget::default()
+            .request(Request::SessionAttach(AttachParams {
+                target: SessionTarget {
+                    session: Some(session.clone()),
+                    ..SessionTarget::default()
+                },
+                quiet: quiet(),
             }))
             .await
         {
@@ -581,6 +627,7 @@ mod tests {
             "s1".into(),
             Feeder::new(sink),
             Arc::default(),
+            Box::new(|| false),
         ));
         until("the first attach", || service.counts().1 == 1).await;
 
