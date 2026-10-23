@@ -7,7 +7,7 @@ import type { ToolbarOption } from "./ToolbarOption";
  */
 export type ToolbarGroup = { 
 /**
- * The words before it ("Lanes", "Group by"); `null` for Board · List.
+ * The words before it ("Lanes", "Group by"); `null` for Board · List · Files.
  */
 label: string | null, 
 /**

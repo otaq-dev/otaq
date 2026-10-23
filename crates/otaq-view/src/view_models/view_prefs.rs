@@ -2,8 +2,9 @@
 //! service keeps them in `ProjectSettings.view` ([`ViewPrefs`]); the page gets them with `board.view` ([`Prefs`]) and
 //! changes one at a time with `board.set_view` ([`Change`], applied by [`apply`] and stored with
 //! `project_view.set`). Nothing is kept in the page. The toolbar ([`Toolbar`], *24 · The two views*) is worded here:
-//! Board · List, Lanes None · Epic on the Board, Group by on the List, Fold empty columns or Hide empty stages, All
-//! tickets and New ticket; each option carries the change it sends.
+//! Board · List · Files, Lanes None · Epic on the Board, Group by on the List, Fold empty columns or Hide empty
+//! stages, All tickets and New ticket; on Files (FIL-01, `s28-03`) its subtitle and the Live dot instead. Each option
+//! carries the change it sends.
 
 use otaq_core::board::settings::{self as core, ViewPrefs};
 use serde::{Deserialize, Serialize};
@@ -13,13 +14,14 @@ use crate::icons::IconName;
 use crate::key_labels::KeyLabels;
 use crate::keymap::KeyAction;
 
-/// Board or List (BRD-01). `BoardViewKind` on the page.
+/// Board, List or the project Files view (BRD-01, FIL-01). `BoardViewKind` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "BoardViewKind")]
 pub enum ViewKind {
     Board,
     List,
+    Files,
 }
 
 /// The Board's lanes (EPL-01). `BoardLanes` on the page.
@@ -56,6 +58,7 @@ impl From<core::BoardView> for ViewKind {
         match v {
             core::BoardView::Board => Self::Board,
             core::BoardView::List => Self::List,
+            core::BoardView::Files => Self::Files,
         }
     }
 }
@@ -65,6 +68,7 @@ impl From<ViewKind> for core::BoardView {
         match v {
             ViewKind::Board => Self::Board,
             ViewKind::List => Self::List,
+            ViewKind::Files => Self::Files,
         }
     }
 }
@@ -250,36 +254,44 @@ pub struct ToolbarOption {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ToolbarGroup")]
 pub struct ToolbarGroup {
-    /// The words before it ("Lanes", "Group by"); `null` for Board · List.
+    /// The words before it ("Lanes", "Group by"); `null` for Board · List · Files.
     pub label: Option<String>,
     /// An icon before the words: the link before "Dependencies".
     pub icon: Option<IconName>,
     pub options: Vec<ToolbarOption>,
 }
 
-/// The toolbar at the top of the board, in both views (*24 · The two views*). `BoardToolbar` on the page.
+/// The toolbar at the top of the board, in every view (*24 · The two views*, `s28-03`). `BoardToolbar` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "BoardToolbar")]
 pub struct Toolbar {
-    /// Board · List (BRD-01).
+    /// Board · List · Files (BRD-01, FIL-01).
     pub views: ToolbarGroup,
+    /// Files: "What the base branch looks like, and which agents are changing which files", after a divider.
+    pub subtitle: Option<String>,
+    /// Files: "Live", with its dot on the right: the view follows the tickets' changes (FIL-10).
+    pub live: Option<String>,
     /// The Board's Lanes None · Epic (EPL-01).
     pub lanes: Option<ToolbarGroup>,
     /// The List's Group by Stage · Status · Epic · Agent (LST-01).
     pub group_by: Option<ToolbarGroup>,
     /// The Board's Dependencies On hover · Always (DPV-02), on the right before the switch.
     pub dependencies: Option<ToolbarGroup>,
-    /// Fold empty columns (Board) or Hide empty stages (List): a switch.
-    pub switch: ToolbarOption,
-    /// "All tickets": the board's filter (`/`).
-    pub all_tickets: String,
-    /// "New ticket" (⌘N).
-    pub new_ticket: String,
+    /// Fold empty columns (Board) or Hide empty stages (List): a switch; none on Files.
+    pub switch: Option<ToolbarOption>,
+    /// "All tickets": the board's filter (`/`); none on Files.
+    pub all_tickets: Option<String>,
+    /// "New ticket" (⌘N); none on Files.
+    pub new_ticket: Option<String>,
     pub new_ticket_keys: Option<String>,
 }
 
 pub const ALL_TICKETS: &str = "All tickets";
 pub const NEW_TICKET: &str = "New ticket";
+/// The Files view's toolbar subtitle (`s28-03`).
+pub const FILES_SUBTITLE: &str =
+    "What the base branch looks like, and which agents are changing which files";
+pub const LIVE: &str = "Live";
 
 /// The toolbar for `prefs`, with the user's keys in the tooltips.
 pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
@@ -314,8 +326,24 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
                     KeyAction::ShowBoard,
                 ),
                 view_option(ViewKind::List, "List", IconName::List, KeyAction::ShowList),
+                // `s28-02`: "Files" over both its keys, "⇧⌘O · g then f".
+                ToolbarOption {
+                    tooltip: Some("Files".to_owned()),
+                    keys: Some(keys.all_labels(KeyAction::ShowFiles).join(" \u{b7} "))
+                        .filter(|k| !k.is_empty()),
+                    ..option(
+                        "Files",
+                        Some(IconName::FolderOpen),
+                        view == ViewKind::Files,
+                        Change::View {
+                            view: ViewKind::Files,
+                        },
+                    )
+                },
             ],
         },
+        subtitle: (view == ViewKind::Files).then(|| FILES_SUBTITLE.to_owned()),
+        live: (view == ViewKind::Files).then(|| LIVE.to_owned()),
         lanes: (view == ViewKind::Board).then(|| ToolbarGroup {
             label: Some("Lanes".to_owned()),
             icon: None,
@@ -356,26 +384,29 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
             .collect(),
         }),
         switch: match view {
-            ViewKind::Board => option(
+            ViewKind::Board => Some(option(
                 "Fold empty columns",
                 Some(IconName::FoldHorizontal),
                 prefs.fold_empty_columns,
                 Change::FoldEmptyColumns {
                     on: !prefs.fold_empty_columns,
                 },
-            ),
-            ViewKind::List => option(
+            )),
+            ViewKind::List => Some(option(
                 "Hide empty stages",
                 Some(IconName::FoldHorizontal),
                 prefs.hide_empty_stages,
                 Change::HideEmptyStages {
                     on: !prefs.hide_empty_stages,
                 },
-            ),
+            )),
+            ViewKind::Files => None,
         },
-        all_tickets: ALL_TICKETS.to_owned(),
-        new_ticket: NEW_TICKET.to_owned(),
-        new_ticket_keys: keys.label(KeyAction::NewTicket),
+        all_tickets: (view != ViewKind::Files).then(|| ALL_TICKETS.to_owned()),
+        new_ticket: (view != ViewKind::Files).then(|| NEW_TICKET.to_owned()),
+        new_ticket_keys: (view != ViewKind::Files)
+            .then(|| keys.label(KeyAction::NewTicket))
+            .flatten(),
     }
 }
 
@@ -464,8 +495,13 @@ mod tests {
         };
         assert_eq!(
             labels(&board.views),
-            [("Board".to_owned(), true), ("List".to_owned(), false)]
+            [
+                ("Board".to_owned(), true),
+                ("List".to_owned(), false),
+                ("Files".to_owned(), false)
+            ]
         );
+        assert_eq!((board.subtitle.as_ref(), board.live.as_ref()), (None, None));
         assert_eq!(board.views.options[1].tooltip.as_deref(), Some("List view"));
         assert_eq!(board.views.options[1].keys.as_deref(), Some("g l"));
         let lanes = board.lanes.as_ref().unwrap();
@@ -491,12 +527,9 @@ mod tests {
                 dependencies: Dependencies::Always
             }
         );
+        let switch = board.switch.as_ref().unwrap();
         assert_eq!(
-            (
-                board.switch.label.as_str(),
-                board.switch.selected,
-                &board.switch.change
-            ),
+            (switch.label.as_str(), switch.selected, &switch.change),
             (
                 "Fold empty columns",
                 false,
@@ -504,8 +537,8 @@ mod tests {
             )
         );
         assert_eq!(
-            (board.all_tickets.as_str(), board.new_ticket.as_str()),
-            ("All tickets", "New ticket")
+            (board.all_tickets.as_deref(), board.new_ticket.as_deref()),
+            (Some("All tickets"), Some("New ticket"))
         );
 
         let list = toolbar(
@@ -529,17 +562,91 @@ mod tests {
                 ("Agent".to_owned(), false)
             ]
         );
+        let switch = list.switch.as_ref().unwrap();
         assert_eq!(
-            (
-                list.switch.label.as_str(),
-                list.switch.selected,
-                &list.switch.change
-            ),
+            (switch.label.as_str(), switch.selected, &switch.change),
             (
                 "Hide empty stages",
                 true,
                 &Change::HideEmptyStages { on: false }
             )
+        );
+    }
+
+    /// FIL-01, `s28-02`, `s28-03`: Files is the third segment ("Files" over "⇧⌘O · g f"); on Files the toolbar has
+    /// its subtitle and the Live dot and nothing of the Board's or the List's.
+    #[test]
+    fn the_files_view_has_its_toolbar() {
+        let keys = KeyLabels::base(crate::keymap::Platform::Mac);
+        let board = toolbar(&ViewPrefs::default(), &keys);
+        let files = &board.views.options[2];
+        assert_eq!(
+            (files.label.as_str(), files.icon, files.selected),
+            ("Files", Some(IconName::FolderOpen), false)
+        );
+        assert_eq!(
+            (files.tooltip.as_deref(), files.keys.as_deref()),
+            (Some("Files"), Some("⇧⌘O \u{b7} g f"))
+        );
+        assert_eq!(
+            files.change,
+            Change::View {
+                view: ViewKind::Files
+            }
+        );
+        let shown = toolbar(
+            &ViewPrefs {
+                view: core::BoardView::Files,
+                ..ViewPrefs::default()
+            },
+            &keys,
+        );
+        assert!(shown.views.options[2].selected);
+        assert_eq!(
+            shown.subtitle.as_deref(),
+            Some("What the base branch looks like, and which agents are changing which files")
+        );
+        assert_eq!(shown.live.as_deref(), Some("Live"));
+        assert_eq!(
+            (
+                &shown.lanes,
+                &shown.group_by,
+                &shown.dependencies,
+                &shown.switch
+            ),
+            (&None, &None, &None, &None)
+        );
+        assert_eq!((shown.all_tickets, shown.new_ticket), (None, None));
+        // Letters off: only ⇧⌘O.
+        let off = toolbar(
+            &ViewPrefs::default(),
+            &crate::key_labels::fixtures::letters_off(),
+        );
+        assert_eq!(off.views.options[2].keys.as_deref(), Some("⇧⌘O"));
+    }
+
+    /// SHB-05: Files is stored and read back like the other two views (`ViewPrefs` round-trip).
+    #[test]
+    fn the_files_view_is_remembered() {
+        let mut prefs = ViewPrefs::default();
+        apply(
+            &mut prefs,
+            &Change::View {
+                view: ViewKind::Files,
+            },
+        );
+        assert_eq!(prefs.view, core::BoardView::Files);
+        let stored = serde_json::to_string(&prefs).unwrap();
+        assert!(stored.contains("\"view\":\"files\""), "{stored}");
+        let back: ViewPrefs = serde_json::from_str(&stored).unwrap();
+        assert_eq!(back, prefs);
+        assert_eq!(Prefs::from(&back).view, ViewKind::Files);
+        assert_eq!(
+            serde_json::to_value(Change::View {
+                view: ViewKind::Files
+            })
+            .unwrap(),
+            serde_json::json!({"kind": "view", "view": "files"})
         );
     }
 }

@@ -38,6 +38,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         )),
         // The Files tab: the tree and a file, a search, All changes with a line comment, the review bar (T-0468).
         "gallery.files" => reply(&otaq_view::view_models::files_tab::gallery()),
+        // The project Files view (T-0478): All with the chips, Needs you, loading, empty, the picker, one ticket.
+        "gallery.files_view" => reply(&otaq_view::view_models::files_view::gallery()),
         // Settings' Environment variables row in each state (T-0300).
         "gallery.env_vars" => reply(&settings_page::env_vars_gallery()),
         // Settings' warm build switch in each state (T-0301).
@@ -125,7 +127,7 @@ mod tests {
             .unwrap();
         assert_eq!(view["legend"].as_array().map(Vec::len), Some(4));
         assert_eq!(view["keyboard_map"]["letters"][0]["label"], "Next / previous ticket (panel)");
-        assert_eq!(view["shortcut_lists"][1]["columns"][1][0]["rows"][2]["mark"], "changed");
+        assert_eq!(view["shortcut_lists"][1]["columns"][1][0]["rows"][3]["mark"], "changed");
         assert_eq!(view["priority"]["chips"][0]["short"], "P1");
         let cards = crate::api::request(&h.app, "gallery.cards", Value::Null)
             .await

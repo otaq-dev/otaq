@@ -300,6 +300,23 @@ pub struct TreeRow {
     /// An epic's file a running child is writing: that child's key, so it opens from the child's worktree
     /// (`files.read`'s `child`, FTB-06).
     pub child: Option<String>,
+    /// The project Files view (FIL-03): one chip per ticket changing the file; empty in a ticket's tab.
+    pub chips: Vec<ChipView>,
+    /// The project Files view: a folder's "3 changed".
+    pub changed_below: Option<String>,
+    /// The project Files view: the other base branch of a ticket changing it ("release/2.3", d0051).
+    pub branch: Option<String>,
+    /// A deleted file, struck through (FIL-05).
+    pub struck: bool,
+}
+
+/// A ticket's chip on a file of the project Files view: its key in its status colour (FIL-03). `FilesChip` on the
+/// page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FilesChip")]
+pub struct ChipView {
+    pub key: String,
+    pub tone: super::card::Tone,
 }
 
 /// The running child writing a file on top of the epic's branch, by key.
@@ -323,6 +340,10 @@ pub fn tree_rows(entries: &[TreeEntry], depth: u32) -> Vec<TreeRow> {
             opens: e.kind != EntryKind::Submodule,
             tags: tags(&e.tags),
             child: writing_child(&e.tags),
+            chips: Vec::new(),
+            changed_below: None,
+            branch: None,
+            struck: false,
         })
         .collect()
 }
@@ -359,6 +380,10 @@ pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
                 opens: true,
                 tags: Vec::new(),
                 child: None,
+                chips: Vec::new(),
+                changed_below: None,
+                branch: None,
+                struck: false,
             });
             walk(inner, &format!("{path}/"), depth + 1, rows);
         }
@@ -373,6 +398,10 @@ pub fn changed_tree(files: &[ChangedEntry]) -> Vec<TreeRow> {
                 opens: true,
                 tags: tags(&entry.tags),
                 child: entry.child.as_ref().map(ToString::to_string),
+                chips: Vec::new(),
+                changed_below: None,
+                branch: None,
+                struck: false,
             });
         }
     }
@@ -412,6 +441,9 @@ pub struct SearchRow {
     pub tags: Vec<TagView>,
     /// An epic's file a running child is writing: opens from that child's worktree.
     pub child: Option<String>,
+    /// The project Files view: as [`TreeRow::chips`] and [`TreeRow::branch`].
+    pub chips: Vec<ChipView>,
+    pub branch: Option<String>,
 }
 
 /// The search's answer: the matches, best first, and what to say when there are none or too many.
@@ -427,7 +459,7 @@ pub struct SearchView {
 }
 
 /// `text`'s characters `[from, to)` cut into hit parts, `hit` being the matched `[start, end)` of the whole path.
-fn hit_parts(text: &str, from: usize, hit: [u32; 2]) -> Vec<HitPart> {
+pub(crate) fn hit_parts(text: &str, from: usize, hit: [u32; 2]) -> Vec<HitPart> {
     let chars: Vec<char> = text.chars().collect();
     let (start, end) = (hit[0] as usize, hit[1] as usize);
     let local = |at: usize| at.saturating_sub(from).min(chars.len());
@@ -465,6 +497,8 @@ pub fn search_view(query: &str, matches: &[FileMatch], total: u32) -> SearchView
                 quiet: m.change.is_none() && m.tags.is_empty(),
                 tags: tags(&m.tags),
                 child: writing_child(&m.tags),
+                chips: Vec::new(),
+                branch: None,
             }
         })
         .collect();
@@ -490,7 +524,7 @@ pub fn search_view(query: &str, matches: &[FileMatch], total: u32) -> SearchView
 #[ts(rename = "FilesSearchBox")]
 pub struct SearchBox {
     pub placeholder: &'static str,
-    /// The user's key for "Search the ticket’s files" (KEY-08).
+    /// The user's key for Go to file (KEY-08).
     pub keys: Option<String>,
 }
 

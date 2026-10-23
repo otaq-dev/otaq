@@ -1,14 +1,13 @@
 //! The keyboard map as the design shows it (*01 · Components → Keyboard map (update AF · 0097)*): the single letters
 //! (the same on every platform), then the modifier keys in three columns, macOS, Windows / Linux, and Windows / Linux
 //! while a terminal has focus, then three notes. Titles and keys come from the keymap ([`KeyAction::title`], the base
-//! map), so the map shown is the map bound; the parked Files view's two rows are there, dimmed and tagged. This is
-//! the gallery's map of the defaults, not the `?` list ([`super::shortcut_list`]), which shows the user's keys.
+//! map), so the map shown is the map bound. This is the gallery's map of the defaults, not the `?` list ([`super::shortcut_list`]), which shows the user's keys.
 
 use serde::Serialize;
 use ts_rs::TS;
 
 use super::shortcut_list::{ShortcutKey, row_keys};
-use crate::keymap::{Binding, KeyAction, Platform, bindings_for};
+use crate::keymap::{Binding, KeyAction, Platform, bindings};
 
 pub const LETTERS_TITLE: &str = "Single letters";
 pub const LETTERS_NOTE: &str = "all platforms · while not typing";
@@ -18,8 +17,6 @@ pub const COLUMNS: [&str; 3] = [
     "Windows / Linux",
     "In a terminal (Windows / Linux)",
 ];
-/// A parked row's tag.
-pub const PARKED: &str = "parked with the Files view";
 /// Between an action's keys, and between a sequence's two.
 pub const OR: &str = "or";
 pub const THEN: &str = "then";
@@ -33,9 +30,8 @@ pub const NOTES: [&str; 3] = [
      doesn’t use ⌘). On Windows and Linux most of the app’s keys move to Ctrl+Shift+… inside a terminal (the third \
      column); Ctrl+1–9, Ctrl+`, Ctrl+, , Ctrl+Tab, Ctrl+K and Ctrl+P stay as they are. ⌃` / Ctrl+` opens, closes and \
      leaves the terminal.",
-    "Replaces 0058’s map (decision 0097). Files view (⇧⌘O) and Go to file (⌥⌘P) keep their keys, parked with the \
-     Files view: the app hides them while the view is parked, and Settings and the ? list don’t show them. Open diff \
-     has no key (the palette runs it); ⌘D is Start / move to Dev. ⇧⌘T → ⌃`, ⇧⌘A → ⇧⌘L, ⇧⌘E → e, ⌘⌥1–6 → \
+    "Update AO (0087): the Files view is back as the third view, ⇧⌘O or g f (g f is the Files tab inside a ticket), \
+     and ⌥⌘P is Go to file in both. Replaces 0058’s map (decision 0097). Open diff has no key (the palette runs it); ⌘D is Start / move to Dev. ⇧⌘T → ⌃`, ⇧⌘A → ⇧⌘L, ⇧⌘E → e, ⌘⌥1–6 → \
      1–6, ⇧⌘G → g e, ⇧⌘D → ⌘D, ⌘K search → / (⌘K is the command palette).",
 ];
 
@@ -52,8 +48,6 @@ pub struct LetterRow {
 #[ts(rename = "KeyMapRow")]
 pub struct KeyRow {
     pub label: &'static str,
-    /// The Files view's rows: their tag ([`PARKED`]); their keys are drawn dimmed.
-    pub parked: Option<&'static str>,
     pub mac: Vec<ShortcutKey>,
     pub win_linux: Vec<ShortcutKey>,
     pub in_terminal: Vec<ShortcutKey>,
@@ -128,7 +122,7 @@ const MODIFIERS: [&[KeyAction]; 20] = [
     &[SendBack],
     &[StartDev],
     &[FindInTerminal],
-    // 0097's Stop all row is Pause's (d0112), before the parked two.
+    // 0097's Stop all row is Pause's (d0112), before the Files view's two.
     &[Pause],
     &[ShowFiles],
     &[GoToFile],
@@ -143,10 +137,18 @@ fn keys(members: &[KeyAction], bindings: &[&Binding], plain: bool) -> Vec<Shortc
         .collect()
 }
 
-/// The map of the base keys, the parked Files view's included.
+/// The modifier row's name where the map draws another than the title: "Files view" (ds-01, update AO).
+fn modifier_label(action: KeyAction) -> &'static str {
+    match action {
+        ShowFiles => "Files view",
+        other => other.title(),
+    }
+}
+
+/// The map of the base keys.
 pub fn map() -> KeyMap {
-    let mac = bindings_for(Platform::Mac, true);
-    let win = bindings_for(Platform::WinLinux, true);
+    let mac = bindings(Platform::Mac);
+    let win = bindings(Platform::WinLinux);
     let mac: Vec<&Binding> = mac.iter().collect();
     let outside: Vec<&Binding> = win.iter().filter(|b| b.place.outside_terminals()).collect();
     let inside: Vec<&Binding> = win.iter().filter(|b| b.place.inside_terminals()).collect();
@@ -169,8 +171,7 @@ pub fn map() -> KeyMap {
         modifiers: MODIFIERS
             .iter()
             .map(|members| KeyRow {
-                label: members[0].title(),
-                parked: members[0].is_files_view().then_some(PARKED),
+                label: modifier_label(members[0]),
                 mac: keys(members, &mac, false),
                 win_linux: keys(members, &outside, false),
                 in_terminal: keys(members, &inside, false),
@@ -226,13 +227,12 @@ mod tests {
 
     type Row<'a> = (
         &'a str,
-        Option<&'a str>,
         Vec<Vec<&'a str>>,
         Vec<Vec<&'a str>>,
         Vec<Vec<&'a str>>,
     );
 
-    /// ds-01's Modifier keys table: every row with its three columns as drawn, the parked two at the end.
+    /// ds-01's Modifier keys table: every row with its three columns as drawn, the Files view's two at the end.
     #[test]
     fn the_modifier_keys_are_the_drawn_ones() {
         let map = map();
@@ -251,7 +251,6 @@ mod tests {
             .map(|r| {
                 (
                     r.label,
-                    r.parked,
                     kbds(&r.mac),
                     kbds(&r.win_linux),
                     kbds(&r.in_terminal),
@@ -260,13 +259,12 @@ mod tests {
             .collect();
         let one = |k: &'static str| vec![vec![k]];
         let none = Vec::<Vec<&str>>::new;
-        let row = |label, mac, win, term| -> Row { (label, None, one(mac), one(win), one(term)) };
+        let row = |label, mac, win, term| -> Row { (label, one(mac), one(win), one(term)) };
         assert_eq!(
             shown,
             [
                 (
                     "Command palette",
-                    None,
                     vec![vec!["⌘K"], vec!["⇧⌘P"]],
                     vec![vec!["Ctrl+K"], vec!["Ctrl+Shift+P"]],
                     vec![vec!["Ctrl+K"], vec!["Ctrl+Shift+P"]],
@@ -283,7 +281,6 @@ mod tests {
                 ),
                 (
                     "New Project agent conversation",
-                    None,
                     one("⇧⌘L"),
                     one("Ctrl+Shift+L"),
                     none()
@@ -307,14 +304,13 @@ mod tests {
                     "Ctrl+] / Ctrl+[",
                     "Ctrl+Shift+] / Ctrl+Shift+["
                 ),
-                ("Board", None, one("⇧⌘B"), one("Ctrl+Shift+B"), none()),
+                ("Board", one("⇧⌘B"), one("Ctrl+Shift+B"), none()),
                 row("Activity", "⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"),
                 row("Approve ▾", "⌘↵", "Ctrl+↵", "Ctrl+Shift+↵"),
                 row("Send back", "⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"),
                 row("Start / move to Dev", "⌘D", "Ctrl+D", "Ctrl+Shift+D"),
                 (
                     "Find in terminal scrollback",
-                    None,
                     one("⌘F"),
                     none(),
                     one("Ctrl+Shift+F")
@@ -325,24 +321,12 @@ mod tests {
                     "Ctrl+Shift+.",
                     "Ctrl+Shift+."
                 ),
-                (
-                    "Files view",
-                    Some("parked with the Files view"),
-                    one("⇧⌘O"),
-                    one("Ctrl+Shift+O"),
-                    one("Ctrl+Shift+O")
-                ),
-                (
-                    "Search the ticket\u{2019}s files",
-                    None,
-                    one("⌥⌘P"),
-                    one("Ctrl+Alt+P"),
-                    one("Ctrl+Shift+Alt+P")
-                ),
+                row("Files view", "⇧⌘O", "Ctrl+Shift+O", "Ctrl+Shift+O"),
+                row("Go to file", "⌥⌘P", "Ctrl+Alt+P", "Ctrl+Shift+Alt+P"),
             ]
         );
         assert!(NOTES[0].starts_with("Single letters work on every platform"));
-        assert!(NOTES[2].starts_with("Replaces 0058’s map"));
+        assert!(NOTES[2].starts_with("Update AO (0087): the Files view is back"));
     }
 
     /// Every action with a key is in the map: the keyless ones (the palette runs them) aren't.

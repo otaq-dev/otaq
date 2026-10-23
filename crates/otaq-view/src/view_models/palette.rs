@@ -89,6 +89,8 @@ pub struct Context {
     pub open: Option<OpenTicket>,
     /// A terminal had the keyboard (Find in terminal scrollback runs there).
     pub terminal: bool,
+    /// The project Files view is shown (Go to file searches it, FIL-11).
+    pub files_view: bool,
 }
 
 /// Why `action` can't run in `context`; `None` when it can.
@@ -105,9 +107,10 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
         A::RerunValidation => needs_open().or_else(|| {
             (!open.is_some_and(|o| o.retry_validation)).then_some(NO_VALIDATION_TO_RERUN)
         }),
-        A::OpenDiff | A::GoToFile => {
-            needs_open().or_else(|| (!open.is_some_and(|o| o.diff)).then_some(NO_DIFF))
-        }
+        A::OpenDiff => needs_open().or_else(|| (!open.is_some_and(|o| o.diff)).then_some(NO_DIFF)),
+        // The open ticket's Files tab, else the Files view's search (FIL-11).
+        A::GoToFile if context.files_view && open.is_none() => None,
+        A::GoToFile => needs_open().or_else(|| (!open.is_some_and(|o| o.diff)).then_some(NO_DIFF)),
         A::FocusEpic => {
             needs_open().or_else(|| (!open.is_some_and(|o| o.in_epic)).then_some(NOT_IN_AN_EPIC))
         }
@@ -143,7 +146,7 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
 
 /// Whether the palette lists `action`. Not the palette itself; not Project 1–9 (each project is a row of its own,
 /// with its key); not the numbered ticket tabs; not Open the ticket (↵ on a card: a ticket row opens its sheet); not
-/// Pause / Resume agents (its scopes are rows of their own, [`Item::Pause`]); not the parked Files view.
+/// Pause / Resume agents (its scopes are rows of their own, [`Item::Pause`]).
 pub fn listed(action: KeyAction) -> bool {
     !matches!(
         action,
@@ -152,7 +155,7 @@ pub fn listed(action: KeyAction) -> bool {
             | KeyAction::SwitchTab(_)
             | KeyAction::OpenPanel
             | KeyAction::Pause
-    ) && !action.is_files_view()
+    )
 }
 
 /// Whether running `action` goes into the recent items: what the palette lists, except moving between tickets and
@@ -219,7 +222,7 @@ pub fn icon(action: KeyAction) -> IconName {
         A::OpenDiff => I::FileDiff,
         A::Terminals => I::SquareTerminal,
         A::FindInTerminal => I::ScanSearch,
-        A::ShowFiles => I::Files,
+        A::ShowFiles => I::FolderOpen,
         A::GoToFile => I::File,
     }
 }
@@ -693,6 +696,7 @@ pub fn gallery() -> Vec<GalleryFrame> {
     let review = Context {
         open: Some(OpenTicket::of(&tickets[1])),
         terminal: false,
+        files_view: false,
     };
     let frame = |caption, query, bindings: &[Binding], context| GalleryFrame {
         caption,
@@ -944,7 +948,6 @@ mod tests {
             "Project 1–9",
             "Switch panel tab",
             "Open the ticket",
-            "Files view",
         ] {
             assert!(
                 !all.iter().any(|w| w.starts_with(&format!("action {not}"))),
@@ -979,6 +982,7 @@ mod tests {
             context: Context {
                 open: Some(OpenTicket::of(&tickets[0])),
                 terminal: false,
+                files_view: false,
             },
             ..i
         };
@@ -990,6 +994,7 @@ mod tests {
             context: Context {
                 open: Some(OpenTicket::of(&tickets[1])),
                 terminal: false,
+                files_view: false,
             },
             ..i
         };
@@ -1007,6 +1012,20 @@ mod tests {
             words(&view(">find in terminal", &ready))[0],
             "action Find in terminal scrollback \u{b7} no terminal focused"
         );
+        // FIL-11: Files is listed; Go to file runs in the Files view with no ticket open, else needs one.
+        assert_eq!(words(&view(">files", &i))[0], "action Files");
+        assert_eq!(
+            words(&view(">go to file", &i))[0],
+            "action Go to file \u{b7} no ticket open"
+        );
+        let files = Inputs {
+            context: Context {
+                files_view: true,
+                ..Context::default()
+            },
+            ..i
+        };
+        assert_eq!(words(&view(">go to file", &files))[0], "action Go to file");
     }
 
     #[test]

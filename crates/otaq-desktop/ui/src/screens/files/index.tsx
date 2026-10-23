@@ -1,5 +1,5 @@
 // Area 25 · the ticket sheet's Files tab (FTB-01…FTB-05, SHT-06; T-0468): the tree, the search, a file, All changes
-// with line comments, and ⌥⌘P (Search the ticket's files). The review bar under every tab is the sheet's
+// with line comments, and ⌥⌘P (Go to file). The review bar under every tab is the sheet's
 // (`ReviewBar`). What it says is Rust's (`src/api/files.rs`, `otaq-view`'s `files_tab.rs`); lines arrive highlighted
 // by `highlight.rs`.
 import type { Screen } from "../../app/registry";

@@ -65,6 +65,10 @@ const row = (path: string, extra: Partial<FilesTreeRow> = {}): FilesTreeRow => (
   opens: true,
   tags: [],
   child: null,
+  chips: [],
+  changed_below: null,
+  branch: null,
+  struck: false,
   ...extra,
 });
 
@@ -292,6 +296,8 @@ describe("the Files tab", () => {
           quiet: false,
           tags: [],
           child: null,
+          chips: [],
+          branch: null,
         },
       ],
       empty: null,

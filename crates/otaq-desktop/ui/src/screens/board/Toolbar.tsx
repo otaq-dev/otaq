@@ -1,7 +1,9 @@
-// The board's toolbar, in both views (BRD-01; *24 · The two views*): Board · List first (`g b`, `g l`), then the
-// Board's Lanes None · Epic or the List's Group by; on the right the Board's Dependencies On hover · Always (DPV-02,
-// `s24-09`), the Fold empty columns (or Hide empty stages) switch, All tickets and New ticket. Every word and every change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends
-// the option's change (`board.set_view`) and the board asks for its view again.
+// The board's toolbar, in every view (BRD-01, FIL-01; *24 · The two views*, `s28-03`): Board · List · Files first
+// (`g b`, `g l`, `g f`), then the Board's Lanes None · Epic or the List's Group by; on the right the Board's
+// Dependencies On hover · Always (DPV-02, `s24-09`), the Fold empty columns (or Hide empty stages) switch, All tickets
+// and New ticket. On Files: its subtitle after a divider and the Live dot on the right (FIL-10). Every word and every
+// change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends the option's change (`board.set_view`)
+// and the board asks for its view again.
 import type { KeyboardEvent } from "react";
 
 import { Tooltip } from "../../components";
@@ -94,6 +96,24 @@ function Segments({
   );
 }
 
+/** Fold empty columns (Board) or Hide empty stages (List). */
+function Switch({ option, onView }: { option: ToolbarOption; onView: ToolbarProps["onView"] }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      className="board-chip-button"
+      aria-checked={option.selected}
+      onClick={() => {
+        onView(option.change);
+      }}
+    >
+      {option.icon !== null && <Icon name={option.icon} size={12} />}
+      <span>{option.label}</span>
+    </button>
+  );
+}
+
 export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarProps) {
   const choices = toolbar.lanes ?? toolbar.group_by;
   return (
@@ -105,35 +125,40 @@ export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarP
           <Segments group={choices} name={choices.label ?? ""} onView={onView} />
         </>
       )}
+      {toolbar.subtitle !== null && (
+        <>
+          <span className="board-toolbar-divider board-toolbar-subtitle-divider" aria-hidden />
+          <span className="board-toolbar-subtitle">{toolbar.subtitle}</span>
+        </>
+      )}
       <span className="board-toolbar-spacer" />
+      {toolbar.live !== null && (
+        <span className="board-toolbar-live">
+          <span className="board-toolbar-live-dot" aria-hidden />
+          <span>{toolbar.live}</span>
+        </span>
+      )}
       {toolbar.dependencies && (
         <Segments group={toolbar.dependencies} name={toolbar.dependencies.label ?? ""} onView={onView} />
       )}
-      <button
-        type="button"
-        role="switch"
-        className="board-chip-button"
-        aria-checked={toolbar.switch.selected}
-        onClick={() => {
-          onView(toolbar.switch.change);
-        }}
-      >
-        {toolbar.switch.icon !== null && <Icon name={toolbar.switch.icon} size={12} />}
-        <span>{toolbar.switch.label}</span>
-      </button>
-      <button type="button" className="board-chip-button" onClick={onAllTickets}>
-        <span>{toolbar.all_tickets}</span>
-        <Icon name="chevron-down" size={12} />
-      </button>
-      <Tooltip
-        text={toolbar.new_ticket}
-        {...(toolbar.new_ticket_keys === null ? {} : { keys: toolbar.new_ticket_keys })}
-      >
-        <button type="button" className="board-new-ticket" onClick={onNewTicket}>
-          <Icon name="plus" size={13} />
-          <span>{toolbar.new_ticket}</span>
+      {toolbar.switch && <Switch option={toolbar.switch} onView={onView} />}
+      {toolbar.all_tickets !== null && (
+        <button type="button" className="board-chip-button" onClick={onAllTickets}>
+          <span>{toolbar.all_tickets}</span>
+          <Icon name="chevron-down" size={12} />
         </button>
-      </Tooltip>
+      )}
+      {toolbar.new_ticket !== null && (
+        <Tooltip
+          text={toolbar.new_ticket}
+          {...(toolbar.new_ticket_keys === null ? {} : { keys: toolbar.new_ticket_keys })}
+        >
+          <button type="button" className="board-new-ticket" onClick={onNewTicket}>
+            <Icon name="plus" size={13} />
+            <span>{toolbar.new_ticket}</span>
+          </button>
+        </Tooltip>
+      )}
     </div>
   );
 }

@@ -772,3 +772,62 @@
   align-items: center;
   gap: 6px;
 }
+
+/*
+ * The project Files view's rows (FIL-03, `s28-03`): one chip per ticket changing a file, its key beside a square in
+ * the ticket's status colour; the other base's tag in amber; a folder's "3 changed"; a deleted file struck through.
+ */
+.files-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: 500 10.5px var(--font-mono);
+  white-space: nowrap;
+}
+
+.files-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--text-muted);
+}
+
+.files-chip[data-tone="attention"] .files-chip-dot {
+  background: var(--st-attn);
+}
+
+.files-chip[data-tone="working"] .files-chip-dot {
+  background: var(--st-working);
+}
+
+.files-chip[data-tone="review"] .files-chip-dot {
+  background: var(--st-review);
+}
+
+.files-chip[data-tone="error"] .files-chip-dot {
+  background: var(--st-error);
+}
+
+.files-branch {
+  flex: none;
+  color: var(--st-paused);
+  font: 400 10.5px var(--font-ui);
+  white-space: nowrap;
+}
+
+.files-changed-below {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 10.5px var(--font-ui);
+  white-space: nowrap;
+}
+
+.files-row[data-struck] .files-name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}

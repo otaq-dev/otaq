@@ -543,6 +543,44 @@
   flex: 1;
 }
 
+/* The Files view (`s28-03`): its subtitle after the switch, dropped when the toolbar narrows (`s28-08`), and the Live
+ * dot on the right while it follows the tickets' changes (FIL-10). */
+.board-toolbar {
+  container-type: inline-size;
+}
+
+.board-toolbar-subtitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@container (max-width: 760px) {
+  .board-toolbar-subtitle,
+  .board-toolbar-subtitle-divider {
+    display: none;
+  }
+}
+
+.board-toolbar-live {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  font: 400 11.5px var(--font-ui);
+}
+
+.board-toolbar-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--st-working);
+}
+
 .board-segments {
   display: inline-flex;
   align-items: center;

@@ -310,23 +310,6 @@
   color: var(--text-muted);
 }
 
-/* The parked Files view: the label muted with its tag, the keys dimmed. */
-.gallery-keyrow[data-parked] .gallery-keylabel {
-  color: var(--text-muted);
-}
-
-.gallery-keyrow[data-parked] .kbd {
-  opacity: 0.45;
-}
-
-.gallery-keytag {
-  padding: 1px 6px;
-  border-radius: var(--r-sm);
-  background: var(--bg-column);
-  font: 400 10.5px var(--font-ui);
-  color: var(--text-muted);
-}
-
 .gallery-keynote-first {
   margin: 0;
   font: 500 12px/1.45 var(--font-ui);

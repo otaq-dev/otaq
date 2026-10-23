@@ -439,7 +439,7 @@ impl Default for ProjectSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewPrefs {
-    /// Board or List (BRD-01).
+    /// Board, List or Files (BRD-01, FIL-01).
     pub view: BoardView,
     /// The Board's lanes (EPL-01).
     pub lanes: Lanes,
@@ -482,13 +482,14 @@ impl Default for ViewPrefs {
     }
 }
 
-/// The board's two views (BRD-01).
+/// The project's three views (BRD-01, FIL-01): Board, List and the project Files view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BoardView {
     #[default]
     Board,
     List,
+    Files,
 }
 
 /// The Board's lanes (EPL-01): none, or one per epic.

@@ -6,7 +6,9 @@
 // place of the columns: its rows press, open, drag and open their menu as cards do, and Group by Stage's groups are the
 // drop targets (a row dragged onto Ready queues it); ↑/↓ walk the rows. How the board looks is
 // the project's view preferences, kept by the service (SHB-05): folds, the view and the lanes change with
-// `board.set_view`, then the board asks for its view again; `g b` and `g l` switch the view. A drag is the UIT-04 way
+// `board.set_view`, then the board asks for its view again; `g b`, `g l` and ⇧⌘O / `g f` switch the view. On Files
+// (FIL-01) the project Files view (`files_view/FilesView.tsx`) takes the columns' place under the same toolbar and
+// strip; the columns stay mounted, hidden, so switching back lays them out at once. A drag is the UIT-04 way
 // (`drag.ts`): one `board.drag` at its start, then only this page works while the pointer moves, drawing the targets'
 // verdicts (Review's Approved section is a target of its own), the lifted card and the hint or reason under it; a release on an allowed target sends
 // `board.drop`, whose answer may be the Park confirmation, the Approve choice (Ready for Review → Approved: nothing
@@ -68,6 +70,7 @@ import type { ViewChange } from "../../generated/ViewChange";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { FilesView } from "../files_view/FilesView";
 import { List, type ListHandlers } from "../list/List";
 import { findRow, groupSpans, listTargets, nextRow, rowKeys } from "../list/rows";
 import { NeedsYouStrip } from "../strip/Strip";
@@ -452,9 +455,9 @@ export function Board() {
     },
     [project],
   );
-  // `g b` and `g l` (BRD-01): the view, for this project.
+  // `g b`, `g l` (BRD-01) and ⇧⌘O / `g f` (FIL-11): the view, for this project.
   const showView = useCallback(
-    (kind: "board" | "list") => {
+    (kind: "board" | "list" | "files") => {
       if (project === null) return false;
       if (view?.prefs.view !== kind) changeView({ kind: "view", view: kind });
       return true;
@@ -469,6 +472,11 @@ export function Board() {
     "show_list",
     useCallback(() => showView("list"), [showView]),
   );
+  useShortcut(
+    "show_files",
+    useCallback(() => showView("files"), [showView]),
+  );
+  const filesShown = view?.prefs.view === "files";
 
   // The drag: state for what the columns draw, the pointer only in a ref (the lifted card follows it unrendered).
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -1019,8 +1027,10 @@ export function Board() {
         />
       )}
       <NeedsYouStrip />
+      {filesShown && project !== null && <FilesView project={project} />}
       <div
         className="board"
+        hidden={filesShown}
         data-view={list === null ? undefined : "list"}
         ref={(el) => {
           boardEl.current = el;
@@ -1177,7 +1187,7 @@ export function Board() {
           />
         )}
       </div>
-      {more !== null && (
+      {more !== null && !filesShown && (
         <button
           type="button"
           className="board-more-stages"

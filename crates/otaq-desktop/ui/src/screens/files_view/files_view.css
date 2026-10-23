@@ -1,0 +1,196 @@
+/*
+ * The project Files view (FIL-01, `s28-03`, `s28-04`, `s28-08`, `s28-09`): the Files tab's layout (`files.css`) in
+ * the main area. The tree narrows to 270 px at 1280 px or with the Project agent panel open (the main area 1216 px or
+ * less). The source bar is a button that opens the picker; a picked ticket's tab carries the back link and its note.
+ */
+.files-view,
+.files-view-picked {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  container-type: inline-size;
+}
+
+.files-view-picked > .files {
+  flex: 1;
+}
+
+@container (max-width: 1216px) {
+  .files-view > .files-side,
+  .files-view-picked .files-side {
+    width: 270px;
+  }
+}
+
+.files-view-source {
+  width: 100%;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.files-view-source:hover {
+  background: var(--bg-hover);
+}
+
+.files-view-source:focus-visible,
+.files-view-back:focus-visible,
+.files-view-picker-row:focus-visible,
+.files-view-open:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.files-view-filters {
+  flex-wrap: wrap;
+}
+
+.files-view-loading {
+  margin: 0;
+  padding: 0 8px;
+}
+
+.files-view-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: auto;
+  padding: 16px;
+  text-align: center;
+}
+
+.files-view-empty p {
+  margin: 0;
+}
+
+.files-view-empty-title {
+  color: var(--text-primary);
+  font: 500 13px var(--font-ui);
+}
+
+/* The back link to the base over a picked ticket's source (FIL-07). */
+.files-view-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-secondary);
+  font: 500 12px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.files-view-back:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.files-view-picked-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.files-view-picked-note > .files-quiet {
+  flex: 1;
+  margin: 0;
+}
+
+.files-view-open {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font: 500 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.files-view-open:hover {
+  background: var(--bg-hover);
+}
+
+/* The picker (`s28-04`). */
+.files-view-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 400px;
+  max-height: 520px;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.files-view-picker-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.files-view-picker-title {
+  padding: 0 8px 2px;
+  color: var(--text-muted);
+  font: 400 10.5px var(--font-mono);
+  letter-spacing: 0.6px;
+}
+
+.files-view-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-primary);
+  font: 400 12.5px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.files-view-picker-row:hover {
+  background: var(--bg-hover);
+}
+
+.files-view-picker-key {
+  flex: none;
+  color: var(--text-secondary);
+  font: 500 11.5px var(--font-mono);
+}
+
+.files-view-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-view-picker-detail {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+.files-view-picker-note {
+  margin: 0;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+  line-height: 1.5;
+}
