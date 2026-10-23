@@ -467,6 +467,22 @@ pub enum Request {
     /// One file's hunks; answered with [`Reply::FileDiff`].
     #[serde(rename = "diff.file")]
     DiffFile(DiffFileParams),
+    // The Files tab (FTB-01…FTB-04, FTB-06; T-0467): the worktree with its uncommitted edits, from git otherwise.
+    /// One folder's entries (`path` empty: the top); answered with [`Reply::FilesTree`].
+    #[serde(rename = "files.tree")]
+    FilesTree(FilesPathParams),
+    /// File names matching `query` across the whole tree; answered with [`Reply::FilesSearch`].
+    #[serde(rename = "files.search")]
+    FilesSearch(FilesSearchParams),
+    /// One file as it is; answered with [`Reply::FileContent`].
+    #[serde(rename = "files.read")]
+    FilesRead(FilesPathParams),
+    /// One file's hunks against the base, uncommitted edits included; answered with [`Reply::FileDiff`].
+    #[serde(rename = "files.diff")]
+    FilesDiff(FilesPathParams),
+    /// Every changed file against the base, uncommitted ones included; answered with [`Reply::FilesChanges`].
+    #[serde(rename = "files.changes")]
+    FilesChanges(KeyParams),
     /// A line comment in the ticket's current round; answered with [`Reply::ReviewComment`].
     #[serde(rename = "review.comment_add")]
     ReviewCommentAdd(NewComment),
@@ -1303,6 +1319,24 @@ pub struct DiffFileParams {
     pub since: Option<String>,
 }
 
+/// `{"key": "SHOP-22", "path": "src/middleware.ts"}`: a file or folder of the ticket's Files tab; `child` (epics)
+/// reads that child's change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesPathParams {
+    pub key: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child: Option<String>,
+}
+
+/// `{"key": "SHOP-22", "query": "log"}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FilesSearchParams {
+    pub key: String,
+    pub query: String,
+}
+
 /// `{"key": "SHOP-22", "note": "…"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubmitByUserParams {
@@ -1853,6 +1887,11 @@ impl Request {
             Self::WarmClear(_) => "warm.clear",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
+            Self::FilesTree(_) => "files.tree",
+            Self::FilesSearch(_) => "files.search",
+            Self::FilesRead(_) => "files.read",
+            Self::FilesDiff(_) => "files.diff",
+            Self::FilesChanges(_) => "files.changes",
             Self::ReviewCommentAdd(_) => "review.comment_add",
             Self::ReviewCommentReply(_) => "review.comment_reply",
             Self::ReviewCommentEdit(_) => "review.comment_edit",
@@ -2101,6 +2140,10 @@ pub enum Reply {
     PrimeValidate(Box<crate::prime::ValidatePrime>),
     DiffSummary(Box<DiffSummary>),
     FileDiff(Box<FileDiff>),
+    FilesTree(Box<crate::board::files::FilesTree>),
+    FilesSearch(Box<crate::board::files::FilesSearch>),
+    FileContent(Box<crate::board::files::FileContent>),
+    FilesChanges(Box<crate::board::files::FilesChanges>),
     ReviewComment(ReviewComment),
     ReviewComments(ReviewComments),
     TicketComment(Box<crate::board::ticket_comments::TicketComment>),

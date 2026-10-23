@@ -6,9 +6,17 @@
 //! ticket whose worktree was removed still has its branch). Large diffs are read **one file at a time**: the
 //! file list is cheap (`--numstat`), hunks come per file. A single file is cut after [`MAX_FILE_LINES`] lines
 //! (`truncated`), so one message never carries an unbounded diff (implementation choice, SDD §26).
+//!
+//! A ticket's Files tab (FTB-01…FTB-04, T-0467) also compares a commit with **the files on disk** in a ticket's
+//! worktree ([`DiffSpec::working_tree`]), uncommitted edits included; files git doesn't track yet come from
+//! [`untracked_files`](Git::untracked_files) and [`new_file_diff`]. Still read-only: every command runs with
+//! `--no-optional-locks`, so git never refreshes the worktree's index.
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::process::Stdio;
+
+use tokio::io::AsyncReadExt;
 
 use serde::{Deserialize, Serialize};
 
@@ -18,11 +26,19 @@ use crate::domain::stored_enum;
 /// The most diff lines returned for one file; the rest is reported as `truncated`.
 pub const MAX_FILE_LINES: usize = 20_000;
 
+/// The most bytes of one file read for its text (a file's File view, a new file's diff); the rest is reported as
+/// `truncated`, as [`MAX_FILE_LINES`] is.
+pub const MAX_READ_BYTES: u64 = 8 * 1024 * 1024;
+
+/// How far git looks for a NUL byte to call a file binary (git's own `FIRST_FEW_BYTES`).
+const BINARY_PROBE: usize = 8000;
+
 /// Which two revisions to compare.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffSpec {
     pub from: String,
-    pub to: String,
+    /// `None`: the files on disk in the folder git runs in (a ticket's worktree), uncommitted edits included.
+    pub to: Option<String>,
     /// `from...to`: compare `to` with where it left `from` (a ticket's branch with its `base_sha`). Otherwise
     /// `from` and `to` are compared directly (one squash commit with its parent, a review head with the head).
     pub merge_base: bool,
@@ -33,7 +49,7 @@ impl DiffSpec {
     pub fn since(from: &str, to: &str) -> Self {
         Self {
             from: from.to_owned(),
-            to: to.to_owned(),
+            to: Some(to.to_owned()),
             merge_base: true,
         }
     }
@@ -42,7 +58,17 @@ impl DiffSpec {
     pub fn between(from: &str, to: &str) -> Self {
         Self {
             from: from.to_owned(),
-            to: to.to_owned(),
+            to: Some(to.to_owned()),
+            merge_base: false,
+        }
+    }
+
+    /// `from` to the files on disk: run in a worktree, its commits and its uncommitted edits since `from`.
+    /// Untracked files aren't part of it ([`Git::untracked_files`]).
+    pub fn working_tree(from: &str) -> Self {
+        Self {
+            from: from.to_owned(),
+            to: None,
             merge_base: false,
         }
     }
@@ -53,10 +79,10 @@ impl DiffSpec {
     }
 
     fn revs(&self) -> Vec<String> {
-        if self.merge_base {
-            vec![format!("{}...{}", self.from, self.to)]
-        } else {
-            vec![self.from.clone(), self.to.clone()]
+        match &self.to {
+            Some(to) if self.merge_base => vec![format!("{}...{to}", self.from)],
+            Some(to) => vec![self.from.clone(), to.clone()],
+            None => vec![self.from.clone()],
         }
     }
 }
@@ -149,7 +175,14 @@ impl Git {
         spec: &DiffSpec,
     ) -> Result<Vec<ChangedFile>, GitError> {
         let revs = spec.revs();
-        let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-M", "-z"];
+        let mut args = vec![
+            "--no-optional-locks",
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "-M",
+            "-z",
+        ];
         let rev_args: Vec<&str> = revs.iter().map(String::as_str).collect();
         let mut status_args = args.clone();
         status_args.push("--name-status");
@@ -165,10 +198,14 @@ impl Git {
             let (added, removed) = count.flatten().unwrap_or((0, 0));
             let (size, old_size) = if binary {
                 let old = old_path.as_deref().unwrap_or(&path);
-                (
-                    self.blob_size(repo, &spec.to, &path).await?,
-                    self.blob_size(repo, &spec.from, old).await?,
-                )
+                let size = match &spec.to {
+                    Some(to) => self.blob_size(repo, to, &path).await?,
+                    None => tokio::fs::metadata(repo.join(&path))
+                        .await
+                        .ok()
+                        .map(|m| m.len()),
+                };
+                (size, self.blob_size(repo, &spec.from, old).await?)
             } else {
                 (None, None)
             };
@@ -207,7 +244,14 @@ impl Git {
             }));
         }
         let revs = spec.revs();
-        let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-M", "--unified=3"];
+        let mut args = vec![
+            "--no-optional-locks",
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "-M",
+            "--unified=3",
+        ];
         args.extend(revs.iter().map(String::as_str));
         args.push("--");
         if let Some(old) = &file.old_path {
@@ -224,13 +268,102 @@ impl Git {
     }
 
     /// The size of `path` at `rev`, or `None` if it isn't there.
-    async fn blob_size(&self, repo: &Path, rev: &str, path: &str) -> Result<Option<u64>, GitError> {
+    pub async fn blob_size(
+        &self,
+        repo: &Path,
+        rev: &str,
+        path: &str,
+    ) -> Result<Option<u64>, GitError> {
         let object = format!("{rev}:{path}");
         match self.run(repo, &["cat-file", "-s", &object]).await {
             Ok(out) => Ok(out.trim().parse().ok()),
             Err(GitError::Failed { .. }) => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    /// The files of a worktree git doesn't track and doesn't ignore, by path from its top (`git ls-files
+    /// --others --exclude-standard`). Sorted.
+    pub async fn untracked_files(&self, worktree: &Path) -> Result<Vec<String>, GitError> {
+        let out = self
+            .run(
+                worktree,
+                &[
+                    "--no-optional-locks",
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "-z",
+                ],
+            )
+            .await?;
+        Ok(nul_list(&out))
+    }
+
+    /// The paths whose files on disk differ from the worktree's `HEAD`: edits not committed yet, staged or not
+    /// (`git diff --name-only HEAD`), plus untracked files. Sorted, without duplicates.
+    pub async fn uncommitted_paths(&self, worktree: &Path) -> Result<Vec<String>, GitError> {
+        let tracked = self
+            .run(
+                worktree,
+                &[
+                    "--no-optional-locks",
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--no-ext-diff",
+                    "-z",
+                    "HEAD",
+                ],
+            )
+            .await?;
+        let mut paths = nul_list(&tracked);
+        paths.extend(self.untracked_files(worktree).await?);
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+
+    /// The first [`MAX_READ_BYTES`] of `path` at `rev`, and the blob's whole size; `None` if it isn't there.
+    /// Read through a pipe, so a huge blob is never held whole.
+    pub async fn read_blob(
+        &self,
+        repo: &Path,
+        rev: &str,
+        path: &str,
+    ) -> Result<Option<(Vec<u8>, u64)>, GitError> {
+        let Some(size) = self.blob_size(repo, rev, path).await? else {
+            return Ok(None);
+        };
+        let object = format!("{rev}:{path}");
+        let args = ["cat-file", "blob", object.as_str()];
+        let spawn_error = |error| GitError::Spawn {
+            args: super::join(&args),
+            error,
+        };
+        let mut child = tokio::process::Command::new(&self.program)
+            .args(args)
+            .current_dir(repo)
+            .envs(self.env.iter().map(|(k, v)| (k, v)))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(spawn_error)?;
+        let mut bytes = Vec::new();
+        if let Some(stdout) = child.stdout.take() {
+            stdout
+                .take(MAX_READ_BYTES)
+                .read_to_end(&mut bytes)
+                .await
+                .map_err(spawn_error)?;
+        }
+        // Reading stopped at the cap: the rest isn't wanted.
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+        tracing::debug!(cwd = %repo.display(), args = %super::join(&args), "git");
+        Ok(Some((bytes, size)))
     }
 
     /// The paths a worktree has changed so far against where it left `branch` (LEAD-09): its commits and its
@@ -281,6 +414,87 @@ impl Git {
         paths.sort();
         paths.dedup();
         Ok(paths)
+    }
+}
+
+/// A NUL-separated list (`-z`), sorted.
+fn nul_list(out: &str) -> Vec<String> {
+    let mut paths: Vec<String> = out
+        .split('\0')
+        .filter(|p| !p.is_empty())
+        .map(str::to_owned)
+        .collect();
+    paths.sort();
+    paths
+}
+
+/// Whether `bytes` read as binary: a NUL among the first bytes, as git decides.
+pub fn looks_binary(bytes: &[u8]) -> bool {
+    bytes[..bytes.len().min(BINARY_PROBE)].contains(&0)
+}
+
+/// An untracked file's diff: every line added, as `git diff` shows a new file. `content` is the start of the
+/// file (at most [`MAX_READ_BYTES`]) and `size` its whole size; past either cap the diff is `truncated` and the
+/// counts are those of what was read.
+pub fn new_file_diff(path: &str, content: &[u8], size: u64) -> FileDiff {
+    let binary = looks_binary(content);
+    let mut file = ChangedFile {
+        status: FileStatus::Added,
+        path: path.to_owned(),
+        old_path: None,
+        added: 0,
+        removed: 0,
+        binary,
+        size: binary.then_some(size),
+        old_size: None,
+        similarity: None,
+    };
+    if binary {
+        return FileDiff {
+            file,
+            hunks: Vec::new(),
+            truncated: false,
+        };
+    }
+    let text = String::from_utf8_lossy(content);
+    let ends_with_newline = text.ends_with('\n');
+    let all: Vec<&str> = text.lines().collect();
+    let kept = all.len().min(MAX_FILE_LINES);
+    let truncated = kept < all.len() || (content.len() as u64) < size;
+    let mut lines: Vec<DiffLine> = all[..kept]
+        .iter()
+        .enumerate()
+        .map(|(n, line)| DiffLine {
+            kind: LineKind::Added,
+            old: None,
+            new: Some(n as u32 + 1),
+            text: (*line).to_owned(),
+            no_newline: false,
+        })
+        .collect();
+    if !ends_with_newline
+        && !truncated
+        && let Some(last) = lines.last_mut()
+    {
+        last.no_newline = true;
+    }
+    file.added = u32::try_from(all.len()).unwrap_or(u32::MAX);
+    let hunks = if lines.is_empty() {
+        Vec::new()
+    } else {
+        vec![Hunk {
+            old_start: 0,
+            old_lines: 0,
+            new_start: 1,
+            new_lines: file.added,
+            header: String::new(),
+            lines,
+        }]
+    };
+    FileDiff {
+        file,
+        hunks,
+        truncated,
     }
 }
 

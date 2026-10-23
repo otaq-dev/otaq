@@ -12,6 +12,7 @@ pub mod deps;
 pub mod diff;
 pub mod epic_flight;
 pub mod epics;
+pub mod files;
 pub mod hand_over;
 pub mod human_check;
 pub mod merge;
@@ -265,6 +266,9 @@ stored_enum! {
         TooLong = "too_long",
         /// A comment's report can't be read or stored, or is over 20 MB (CMT-03, CMT-06); nothing was posted.
         BadReport = "bad_report",
+        /// A Files path that isn't one of the ticket's files: absolute, with `..` or `.git`, or a symlink out of
+        /// the worktree (FTB-03, d0087).
+        BadPath = "bad_path",
     }
 }
 

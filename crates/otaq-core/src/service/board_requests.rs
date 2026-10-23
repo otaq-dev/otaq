@@ -525,6 +525,36 @@ pub(super) async fn handle(
             }
             .map(|d| Reply::FileDiff(Box::new(d)))
         }),
+        Request::FilesTree(p) => boxed(move || async move {
+            board
+                .files_tree(&p.key, &p.path)
+                .await
+                .map(|t| Reply::FilesTree(Box::new(t)))
+        }),
+        Request::FilesSearch(p) => boxed(move || async move {
+            board
+                .files_search(&p.key, &p.query)
+                .await
+                .map(|s| Reply::FilesSearch(Box::new(s)))
+        }),
+        Request::FilesRead(p) => boxed(move || async move {
+            board
+                .files_read(&p.key, &p.path, p.child.as_deref())
+                .await
+                .map(|c| Reply::FileContent(Box::new(c)))
+        }),
+        Request::FilesDiff(p) => boxed(move || async move {
+            board
+                .files_diff(&p.key, &p.path, p.child.as_deref())
+                .await
+                .map(|d| Reply::FileDiff(Box::new(d)))
+        }),
+        Request::FilesChanges(p) => boxed(move || async move {
+            board
+                .files_changes(&p.key)
+                .await
+                .map(|c| Reply::FilesChanges(Box::new(c)))
+        }),
         Request::ReviewCommentAdd(p) => boxed(move || async move {
             let added = board.add_comment(&p).await;
             comment_changed(shared, added).await
