@@ -594,7 +594,7 @@ mod tests {
         t.priority = Priority::High;
         t.flags.tokens = Some(64_000);
         t.work = Some(otaq_core::board::tickets::Work {
-            branch: Some("otaq/SHOP-22".into()),
+            branch: Some(otaq_core::naming::branch("SHOP-22")),
             ..Default::default()
         });
         t
@@ -630,7 +630,11 @@ mod tests {
                 ("Model", "Codex \u{b7} gpt-5.5".into(), None),
                 ("Working", "3 min \u{b7} 64k tokens".into(), None),
                 ("Priority", "P2".into(), None),
-                ("Branch", "otaq/SHOP-22".into(), Some("from main")),
+                (
+                    "Branch",
+                    otaq_core::naming::branch("SHOP-22"),
+                    Some("from main")
+                ),
             ]
         );
         assert_eq!(

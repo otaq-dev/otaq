@@ -1751,14 +1751,14 @@ pub fn sheet_gallery() -> Vec<View> {
     shop_22.priority = Priority::High;
     shop_22.flags.tokens = Some(64_000);
     shop_22.work = Some(Work {
-        branch: Some("otaq/SHOP-22".into()),
+        branch: Some(otaq_core::naming::branch("SHOP-22")),
         ..Default::default()
     });
     let mut shop_18 = ticket("SHOP-18", "Checkout API", Status::WaitingForYou, Place::InStage("review".into()));
     shop_18.priority = Priority::Urgent;
     shop_18.status_since = Some(NOW - 12 * MIN);
     shop_18.work = Some(Work {
-        branch: Some("otaq/SHOP-18".into()),
+        branch: Some(otaq_core::naming::branch("SHOP-18")),
         ..Default::default()
     });
     let mut epic = ticket("SHOP-40", "Wishlist", Status::Working, Place::Waiting(None));
@@ -1993,11 +1993,11 @@ mod tests {
         assert_eq!(
             line(&views[0]),
             [
-                "Assignee Rust developer",
-                "Model Codex \u{b7} gpt-5.5",
-                "Working 3 min \u{b7} 64k tokens",
-                "Priority P2",
-                "Branch otaq/SHOP-22",
+                "Assignee Rust developer".to_owned(),
+                "Model Codex \u{b7} gpt-5.5".to_owned(),
+                "Working 3 min \u{b7} 64k tokens".to_owned(),
+                "Priority P2".to_owned(),
+                format!("Branch {}", otaq_core::naming::branch("SHOP-22")),
             ]
         );
         assert_eq!(views[0].sheet.details[0].avatar.as_ref().map(|a| a.letters.as_str()), Some("CX"));
