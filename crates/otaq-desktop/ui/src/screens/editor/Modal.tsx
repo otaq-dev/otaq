@@ -192,16 +192,19 @@ function QuickCreate({
 export function NewTicket({ params, close }: OverlayProps<"new_ticket">) {
   const { project } = useSelection();
   const epic = params?.epic ?? null;
+  const body = params?.body;
   const target: EditorTarget = { mode: "create", project, epic };
   const load = useCallback(
-    () => request("editor.open", { mode: "create", project, epic }) as Promise<EditorView>,
-    [project, epic],
+    () => request("editor.open", { mode: "create", project, epic, body }) as Promise<EditorView>,
+    [project, epic, body],
   );
   const { view, error } = useServiceView(load, []);
   const [full, setFull] = useState<EditorForm | null>(null);
   if (error) return null;
   if (!view) return null;
   if (full !== null) return <FullForm view={view} target={target} initial={full} close={close} />;
+  // With a description to start from (New ticket from this file), the whole form: quick-create has only a title.
+  if (body !== undefined) return <FullForm view={view} target={target} close={close} />;
   return <QuickCreate view={view} target={target} onFull={setFull} close={close} />;
 }
 

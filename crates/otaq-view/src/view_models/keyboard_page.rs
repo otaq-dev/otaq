@@ -1280,6 +1280,7 @@ mod tests {
                 "Ticket tabs",
                 vec!["1–4", "g then o / g then s / g then f / g then a"],
             ),
+            ("Search the ticket\u{2019}s files", vec!["⌥⌘P"]),
             ("Next / previous panel tab", vec!["⌃Tab / ⌃⇧Tab"]),
             ("Approve ▾", vec!["⌘↵"]),
             ("Send back", vec!["⌘⌫"]),

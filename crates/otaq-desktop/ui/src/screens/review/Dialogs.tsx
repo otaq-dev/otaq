@@ -107,9 +107,9 @@ export function ChangedBody({ ticket, changed }: { ticket: string; changed: Revi
     const wanted = changed.files.slice(0, CHANGED_FILES_SHOWN);
     Promise.all(
       wanted.map((path) =>
-        (request("diff.file", { key: ticket, path, since: changed.reviewed }) as Promise<DiffFileView>).catch(
-          () => null,
-        ),
+        (
+          request("files.diff", { key: ticket, path, since: changed.reviewed }) as Promise<DiffFileView>
+        ).catch(() => null),
       ),
     ).then((loaded) => {
       if (current) setFiles(loaded.filter((f): f is DiffFileView => f !== null));
@@ -497,7 +497,7 @@ export function ResultDialog({
                 label={result.view}
                 onClick={() => {
                   close();
-                  openTicket(ticket, "diff");
+                  openTicket(ticket, "files");
                 }}
               />
               <Button icon="undo-2" label={result.send_back} onClick={toSendBack} />

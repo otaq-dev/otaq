@@ -155,3 +155,26 @@ async fn comments_need_a_ticket_in_review_and_some_text() {
         .unwrap_err();
     assert_eq!(err.to_string(), "Add or reopen a child ticket to change it");
 }
+
+/// Any human check of a custom flow takes comments, not only the default flow's Review (FTB-05): the test flow's QA.
+#[tokio::test]
+async fn a_custom_flows_human_check_takes_comments() {
+    let f = Fixture::shop().await;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
+    let flow = otaq_core::flow::yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
+    f.board.use_flow_for_tests("SHOP", &flow).await;
+    let t = f.create("Checkout API").await;
+    sqlx::query("UPDATE tickets SET stage_id = 'qa', state = ? WHERE id = ?")
+        .bind(Status::WaitingForYou.as_str())
+        .bind(&t.id)
+        .execute(f.board.store().pool())
+        .await
+        .unwrap();
+    let c = f
+        .board
+        .add_comment(&comment(7, Side::New, "Say why it's rejected"))
+        .await
+        .unwrap();
+    assert!(c.is_pending());
+    assert_eq!(f.board.comments("SHOP-1", None).await.unwrap().pending, 1);
+}

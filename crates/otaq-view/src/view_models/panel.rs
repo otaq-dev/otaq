@@ -2,7 +2,7 @@
 //! tabs, which the sheet's tabs hold until their tickets move them, and their indicators; previous/next ticket in the
 //! column's order (j / k, ⌘[ / ⌘]); the Start interrupted callout and the branch the header shows.
 //!
-//! An epic has **Ticket · Lead · History**, with **Diff** first once the epic is in review (d0083, d0059;
+//! An epic has **Ticket · Lead · History**, with **Files** first once the epic is in review (d0083, d0059;
 //! *05 → Row · Epic panel · Lead tab (0083)*); it has no Terminal, Run or Shell tab.
 
 use otaq_core::board::order::sort_column;
@@ -23,7 +23,8 @@ use crate::icons::IconName;
 #[ts(rename = "PanelTab")]
 pub enum Tab {
     Terminal,
-    Diff,
+    /// The Files tab (FTB-01…FTB-05, T-0468), the Diff tab's successor.
+    Files,
     Run,
     Shell,
     Ticket,
@@ -35,7 +36,7 @@ pub enum Tab {
 impl Tab {
     pub const ALL: [Tab; 6] = [
         Tab::Terminal,
-        Tab::Diff,
+        Tab::Files,
         Tab::Run,
         Tab::Shell,
         Tab::Ticket,
@@ -45,7 +46,7 @@ impl Tab {
     pub fn label(self) -> &'static str {
         match self {
             Self::Terminal => "Terminal",
-            Self::Diff => "Diff",
+            Self::Files => "Files",
             Self::Run => "Run",
             Self::Shell => "Shell",
             Self::Ticket => "Ticket",
@@ -57,7 +58,7 @@ impl Tab {
     pub fn icon(self) -> IconName {
         match self {
             Self::Terminal => IconName::SquareTerminal,
-            Self::Diff => IconName::FileDiff,
+            Self::Files => IconName::FolderOpen,
             Self::Run => IconName::Play,
             Self::Shell => IconName::Terminal,
             Self::Ticket => IconName::FileText,
@@ -75,7 +76,7 @@ pub enum Indicator {
     Dot {
         attention: bool,
     },
-    /// "+412 −38" (Diff), ":4020" (Run running).
+    /// ":4020" (Run running).
     Text(String),
     /// A count (History: sessions).
     Count(usize),
@@ -83,14 +84,14 @@ pub enum Indicator {
     Problem,
 }
 
-/// An epic's tabs (d0083, d0059 and accepted Q9): Ticket · Lead · History, with Diff first in review.
+/// An epic's tabs (d0083, d0059 and accepted Q9): Ticket · Lead · History, with Files first in review.
 pub fn epic_tabs(epic: &Ticket) -> Vec<Tab> {
     let review = matches!(
         crate::view_models::flow_columns::place_set(epic),
         StatusSet::HumanCheck | StatusSet::Delivery
     );
     review
-        .then_some(Tab::Diff)
+        .then_some(Tab::Files)
         .into_iter()
         .chain([Tab::Ticket, Tab::Lead, Tab::History])
         .collect()
@@ -255,7 +256,7 @@ mod tests {
         let labels: Vec<_> = Tab::ALL.iter().map(|t| t.label()).collect();
         assert_eq!(
             labels,
-            ["Terminal", "Diff", "Run", "Shell", "Ticket", "History"]
+            ["Terminal", "Files", "Run", "Shell", "Ticket", "History"]
         );
     }
 
@@ -308,7 +309,7 @@ mod tests {
         );
     }
 
-    /// An epic shows Ticket · Lead · History, with Diff first in review (d0083).
+    /// An epic shows Ticket · Lead · History, with Files first in review (d0083).
     #[test]
     fn an_epics_tabs_per_column() {
         let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
@@ -324,7 +325,7 @@ mod tests {
             epic.place = otaq_core::domain::Place::of(epic.status, None, None);
             assert_eq!(
                 tabs(&epic),
-                [Tab::Diff, Tab::Ticket, Tab::Lead, Tab::History]
+                [Tab::Files, Tab::Ticket, Tab::Lead, Tab::History]
             );
         }
         epic.status = Status::Merged;

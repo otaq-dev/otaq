@@ -29,7 +29,7 @@ describe("the sheet's tabs (SHT-02)", () => {
   it("opens on Overview; a selected panel tab shows the sheet tab holding it", () => {
     expect(shownSheetTab(TABS, null, "overview")?.tab).toBe("overview");
     expect(shownSheetTab(TABS, "run", "overview")?.tab).toBe("session");
-    expect(shownSheetTab(TABS, "diff", "overview")?.tab).toBe("files");
+    expect(shownSheetTab(TABS, "files", "overview")?.tab).toBe("files");
     expect(shownSheetTab(TABS, "history", "overview")?.tab).toBe("activity");
     // An epic has no Session: its Terminal asked for falls back to the tab it opens on.
     const epic = TABS.filter((t) => t.tab !== "session");
@@ -41,7 +41,7 @@ describe("the sheet's tabs (SHT-02)", () => {
     if (!session) throw new Error("no Session");
     expect(contentOf(session, null)).toBe("terminal");
     expect(contentOf(session, "shell")).toBe("shell");
-    expect(contentOf(session, "diff")).toBe("terminal");
+    expect(contentOf(session, "files")).toBe("terminal");
   });
 
   it("1–4 (g o / s / f / a) pick by number; ⌃Tab steps round the ends", () => {
@@ -92,7 +92,7 @@ describe("the sheet", () => {
     expect(session.match(/role="radio"/g)).toHaveLength(3);
     expect(session).toContain('aria-checked="true">Run');
     expect(render(VIEW, { tab: "history" })).toContain("history of SHOP-19");
-    expect(render(VIEW, { tab: "diff" })).toContain('<div class="sheet-body" data-tab="files"></div>');
+    expect(render(VIEW, { tab: "files" })).toContain('<div class="sheet-body" data-tab="files"></div>');
   });
 
   it("at full page: ← Board in place of the project, no fixed width, and the button goes back", () => {
@@ -119,11 +119,11 @@ describe("the sheet", () => {
     expect(html).toContain('<button type="button" class="sheet-crumb sheet-crumb-link">Wishlist</button>');
   });
 
-  it("fills the panel slot and registers the tab bodies", () => {
+  it("fills the panel slot and registers the tab bodies; Files is the Files screen's (T-0468)", () => {
     const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
       slots: ["panel"],
-      sheetTabs: ["session", "files", "activity", "lead"],
+      sheetTabs: ["session", "activity", "lead"],
     });
   });
 });
@@ -164,7 +164,7 @@ describe("the sheet's keys (0097, SHT-02)", () => {
     app.shortcuts.run({ action: "next_ticket" });
     expect(selection.get()).toMatchObject({ ticket: "SHOP-20", tab: "ticket" });
     expect(app.shortcuts.run({ action: "open_diff" })).toBe(true);
-    expect(selection.get().tab).toBe("diff");
+    expect(selection.get().tab).toBe("files");
     app.shortcuts.run({ action: "expand_panel" });
     expect(shellLayout.get().panelExpanded).toBe(true);
     app.shortcuts.run({ action: "close_panel" });

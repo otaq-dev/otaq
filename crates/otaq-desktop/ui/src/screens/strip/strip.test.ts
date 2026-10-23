@@ -28,7 +28,7 @@ vi.mock("../../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn(), wind
 
 const ask = vi.mocked(request);
 
-const ticket = (key: string, tab: "terminal" | "diff" | "lead" | "ticket" = "terminal", project = "SHOP") =>
+const ticket = (key: string, tab: "terminal" | "files" | "lead" | "ticket" = "terminal", project = "SHOP") =>
   ({ kind: "ticket", project, key, tab }) as const;
 
 /** `needs_you_strip.rs`'s words for shop-web with every group (`s24-12`). */
@@ -110,7 +110,7 @@ const VIEW: StripView = {
           icon: "user-check",
           tone: "review",
           title: "SHOP-18 Checkout API · your check",
-          target: ticket("SHOP-18", "diff"),
+          target: ticket("SHOP-18", "files"),
         },
       ],
       suggestions: [],
@@ -247,7 +247,7 @@ describe("pressing the strip", () => {
     click("allow a command");
     expect(onOpen).toHaveBeenCalledWith(ticket("SHOP-22"));
     click("your check");
-    expect(onOpen).toHaveBeenLastCalledWith(ticket("SHOP-18", "diff"));
+    expect(onOpen).toHaveBeenLastCalledWith(ticket("SHOP-18", "files"));
     click("Next");
     expect(onNext).toHaveBeenCalledTimes(1);
     expect(ask).not.toHaveBeenCalled();
@@ -296,8 +296,8 @@ describe("opening and Next", () => {
     openTarget(ticket("BILL-7", "terminal", "BILL"), r);
     expect(r.selection.get()).toMatchObject({ project: "BILL", ticket: "BILL-7", tab: "terminal" });
     expect(r.focus.get()).toEqual({ ticket: "BILL-7", seq: 1 });
-    openTarget(ticket("SHOP-18", "diff"), r);
-    expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-18", tab: "diff" });
+    openTarget(ticket("SHOP-18", "files"), r);
+    expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-18", tab: "files" });
     expect(r.focus.get()?.seq).toBe(1);
     openTarget(ticket("SHOP-40", "lead"), r);
     expect(r.focus.get()).toEqual({ ticket: "SHOP-40", seq: 2 });

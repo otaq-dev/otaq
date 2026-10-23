@@ -88,6 +88,10 @@ pub enum Target {
     Create {
         project: Option<String>,
         epic: Option<String>,
+        /// The description it starts with: New ticket from this file puts the file's path there (FTB-03).
+        #[serde(default)]
+        #[ts(optional)]
+        body: Option<String>,
     },
     Edit {
         key: String,
@@ -621,7 +625,11 @@ async fn agent_edits(app: &App, key: &str) -> AgentEdits {
 pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
     let source_mode = global_settings(app).await?.description_source_mode;
     let view = match target {
-        Target::Create { project: key, epic } => {
+        Target::Create {
+            project: key,
+            epic,
+            body,
+        } => {
             let epic = epic.as_deref().map(key_of).transpose()?;
             let key = match (&epic, key) {
                 (Some(e), _) => e.project.to_string(),
@@ -636,9 +644,13 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             let info = project(app, &key).await?;
             let all = tickets(app, &key).await?;
             let choices = stage_choices_of(app, None, Some(&key)).await;
+            let mut view = create_view(&info, epic, &all);
+            if let Some(body) = body {
+                view.form.body = body;
+            }
             View {
                 choices: choices.and_then(|c| stage_choices::form_choices(&c, &info.name)),
-                ..create_view(&info, epic, &all)
+                ..view
             }
         }
         Target::Edit { key } | Target::Description { key } => {
@@ -782,7 +794,7 @@ pub fn model_of(base: EditorModel, form: &Form) -> EditorModel {
 
 pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestError> {
     match params.target {
-        Target::Create { project, epic } => {
+        Target::Create { project, epic, .. } => {
             let epic_key = epic.or_else(|| params.form.epic.clone());
             let project = match (&epic_key, project) {
                 (Some(e), _) => key_of(e)?.project.to_string(),

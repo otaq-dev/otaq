@@ -203,17 +203,27 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::EditorSourceModeParams::export_all(&cfg)?;
     // The stage choices' and the path's gallery (T-0411); their views come with the editor and panel views.
     otaq_view::view_models::stage_choices::Gallery::export_all(&cfg)?;
-    // The Diff tab (T-0225): the tab, a file's lines and the comments; then the requests' own types.
-    crate::api::DiffLoad::export_all(&cfg)?;
+    // The Files tab (T-0468): the tab, the tree, the search, All changes, a file, its diff's lines, the review notes,
+    // the comments and the review bar; then the requests' own types.
+    crate::api::FilesLoad::export_all(&cfg)?;
+    otaq_view::view_models::files_tab::TreeRow::export_all(&cfg)?;
+    otaq_view::view_models::files_tab::SearchView::export_all(&cfg)?;
+    otaq_view::view_models::files_tab::ChangesView::export_all(&cfg)?;
+    otaq_view::view_models::files_tab::FilePage::export_all(&cfg)?;
     otaq_view::view_models::diff_page::FileView::export_all(&cfg)?;
-    otaq_view::view_models::diff_page::CommentsView::export_all(&cfg)?;
-    crate::api::DiffParams::export_all(&cfg)?;
-    crate::api::DiffFileParams::export_all(&cfg)?;
-    crate::api::DiffViewedParams::export_all(&cfg)?;
-    crate::api::DiffModeParams::export_all(&cfg)?;
-    crate::api::DiffCommentAdd::export_all(&cfg)?;
-    crate::api::DiffCommentText::export_all(&cfg)?;
-    crate::api::DiffCommentId::export_all(&cfg)?;
+    crate::api::FilesReviewNotes::export_all(&cfg)?;
+    otaq_view::view_models::files_tab::CommentsView::export_all(&cfg)?;
+    otaq_view::view_models::files_tab::ReviewBar::export_all(&cfg)?;
+    otaq_view::view_models::files_tab::Gallery::export_all(&cfg)?;
+    crate::api::FilesParams::export_all(&cfg)?;
+    crate::api::FilesTreeParams::export_all(&cfg)?;
+    crate::api::FilesSearchParams::export_all(&cfg)?;
+    crate::api::FilesFileParams::export_all(&cfg)?;
+    crate::api::FilesBarParams::export_all(&cfg)?;
+    crate::api::FilesModeParams::export_all(&cfg)?;
+    crate::api::FilesCommentAdd::export_all(&cfg)?;
+    crate::api::FilesCommentText::export_all(&cfg)?;
+    crate::api::FilesCommentId::export_all(&cfg)?;
     // Review (T-0226): Approve ▾ / Local merge and Send back, their results and requests.
     otaq_view::view_models::review_page::ApproveView::export_all(&cfg)?;
     otaq_view::view_models::review_page::MergeResult::export_all(&cfg)?;

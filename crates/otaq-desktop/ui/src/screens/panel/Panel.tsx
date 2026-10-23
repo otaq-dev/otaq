@@ -561,7 +561,7 @@ export function usePanelActions(view: PanelView): PanelActions {
         setAnswering(view.key);
         return;
       case "diff":
-        showTab("diff");
+        showTab("files");
         return;
       case "edit":
         requestTicketEdit(view.key);

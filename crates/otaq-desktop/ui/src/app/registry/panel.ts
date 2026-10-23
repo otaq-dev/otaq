@@ -13,11 +13,12 @@ export const SHEET_TABS: readonly SheetTab[] = ["overview", "session", "files", 
 
 /**
  * Today's panel tabs, the content the sheet's tabs show until their tickets land (`SheetTabView.contents`):
- * Terminal, Run and Shell in Session, Diff in Files, Ticket in Overview, History in Activity, Lead in an epic's Lead.
+ * Terminal, Run and Shell in Session, Ticket in Overview, History in Activity, Lead in an epic's Lead; Files is the Files
+ * tab's own (T-0468), which `sheetTabs` draws.
  */
 export const PANEL_TABS: readonly PanelTab[] = [
   "terminal",
-  "diff",
+  "files",
   "run",
   "shell",
   "ticket",

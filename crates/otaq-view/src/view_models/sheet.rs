@@ -5,8 +5,8 @@
 //! Activity**, `1`–`4` and `g o` / `g s` / `g f` / `g a` (an epic: Overview · Lead · Files in review · Activity).
 //!
 //! Until each tab's own ticket lands, a tab shows today's panel content ([`Tab`], registered by its screen): Session
-//! the Terminal, Run and Shell tabs (Agent · Run · Shell), Files the Diff tab, Activity History, Lead the Lead tab.
-//! [`SheetTab::contents`] says which. Overview is its own (`overview.rs`, T-0465).
+//! the Terminal, Run and Shell tabs (Agent · Run · Shell), Activity History, Lead the Lead tab. [`SheetTab::contents`]
+//! says which. Overview is its own (`overview.rs`, T-0465), and so is Files (`files_tab.rs`, T-0468).
 
 use otaq_core::agents::facts::{PathKind, PathStage, TicketAgents};
 use otaq_core::agents::store::SessionAgentRun;
@@ -98,7 +98,7 @@ impl SheetTab {
         match self {
             Self::Overview => &[Tab::Ticket],
             Self::Session => &[Tab::Terminal, Tab::Run, Tab::Shell],
-            Self::Files => &[Tab::Diff],
+            Self::Files => &[Tab::Files],
             Self::Activity => &[Tab::History],
             Self::Lead => &[Tab::Lead],
         }
@@ -116,7 +116,7 @@ pub fn tabs(ticket: &Ticket) -> Vec<SheetTab> {
             SheetTab::Activity,
         ];
     }
-    let review = panel::epic_tabs(ticket).contains(&Tab::Diff);
+    let review = panel::epic_tabs(ticket).contains(&Tab::Files);
     [SheetTab::Overview, SheetTab::Lead]
         .into_iter()
         .chain(review.then_some(SheetTab::Files))
@@ -129,9 +129,14 @@ pub fn numbered(shown: &[SheetTab], n: u8) -> Option<SheetTab> {
     shown.iter().copied().find(|t| t.number() == n)
 }
 
-/// The tab the sheet opens on: Overview (SHT-02). Files while the ticket waits in your check is T-0468's (SHT-06).
-pub fn opens_on(_ticket: &Ticket) -> SheetTab {
-    SheetTab::Overview
+/// The tab the sheet opens on (SHT-02): Overview, and Files (on All changes) while the ticket waits in your check
+/// (SHT-06) and has the tab.
+pub fn opens_on(ticket: &Ticket) -> SheetTab {
+    if super::files_tab::waits_for_you(ticket) && tabs(ticket).contains(&SheetTab::Files) {
+        SheetTab::Files
+    } else {
+        SheetTab::Overview
+    }
 }
 
 /// Session's switch until T-0466: "Agent", "Run", "Shell".
@@ -812,9 +817,10 @@ mod tests {
         assert_eq!(numbered(&shown, 4), Some(SheetTab::Activity));
         assert_eq!(numbered(&shown, 5), None);
         assert_eq!(opens_on(&t), SheetTab::Overview);
+        // In your check it opens on Files, where All changes and the review bar are (SHT-06).
         assert_eq!(
             opens_on(&ticket("SHOP-18", "Checkout API", Status::WaitingForYou)),
-            SheetTab::Overview
+            SheetTab::Files
         );
         let labels: Vec<_> = shown.iter().map(|t| t.label()).collect();
         assert_eq!(labels, ["Overview", "Session", "Files", "Activity"]);
@@ -822,6 +828,7 @@ mod tests {
             SheetTab::Session.contents(),
             [Tab::Terminal, Tab::Run, Tab::Shell]
         );
+        assert_eq!(SheetTab::Files.contents(), [Tab::Files]);
         assert_eq!(part_label(Tab::Terminal), "Agent");
         assert_eq!(part_label(Tab::Shell), "Shell");
 

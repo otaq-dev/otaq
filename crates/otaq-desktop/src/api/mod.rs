@@ -25,12 +25,6 @@ pub use board::{
     SetViewParams as BoardSetViewParams, TicketParams as BoardTicketParams,
 };
 #[cfg(test)]
-pub use diff::{
-    AddParams as DiffCommentAdd, FileParams as DiffFileParams, IdParams as DiffCommentId,
-    Load as DiffLoad, ModeParams as DiffModeParams, Params as DiffParams,
-    TextParams as DiffCommentText, ViewedParams as DiffViewedParams,
-};
-#[cfg(test)]
 pub use drawer::{
     Gallery as DrawerGallery, Params as DrawerParams, TabParams as DrawerTabParams,
     View as DrawerView,
@@ -42,6 +36,13 @@ pub use editor::{
     PickerParams as EditorPickerParams, PickerRowView as EditorPickerRow,
     SaveOutcome as EditorSaved, SaveParams as EditorSaveParams,
     SourceModeParams as EditorSourceModeParams, View as EditorView,
+};
+#[cfg(test)]
+pub use files::{
+    AddParams as FilesCommentAdd, BarParams as FilesBarParams, FileParams as FilesFileParams,
+    IdParams as FilesCommentId, Load as FilesLoad, ModeParams as FilesModeParams,
+    Params as FilesParams, ReviewNotes as FilesReviewNotes, SearchParams as FilesSearchParams,
+    TextParams as FilesCommentText, TreeParams as FilesTreeParams,
 };
 #[cfg(test)]
 pub use flow_preview::export_types as export_flow_preview_types;
@@ -194,7 +195,7 @@ areas! {
     tools,
     sections,
     editor,
-    diff,
+    files,
     terminal_tab,
     review,
     strip,

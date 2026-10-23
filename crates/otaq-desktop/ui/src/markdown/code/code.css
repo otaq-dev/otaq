@@ -54,7 +54,7 @@
   pointer-events: none;
 }
 
-/* The Diff tab's token colours (screens/diff/diff.css), so code looks the same in both places. */
+/* The Files tab's token colours (screens/files/files.css), so code looks the same in both places. */
 .md-code .tok-keyword {
   color: var(--st-investigate);
 }

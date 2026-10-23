@@ -132,7 +132,7 @@ pub enum KeyAction {
     FindInTerminal,
     /// The Files view of the main area (d0087), parked (d0090).
     ShowFiles,
-    /// Go to file in the Files view (d0087), parked (d0090).
+    /// Search the open ticket's files (FTB-02, SHB-04): its Files tab with the search box focused.
     GoToFile,
 }
 
@@ -162,6 +162,7 @@ impl KeyAction {
         ]);
         all.extend((1..=SHEET_TABS).map(Self::SwitchTab));
         all.extend([
+            Self::GoToFile,
             Self::NextTab,
             Self::PreviousTab,
             Self::Approve,
@@ -175,7 +176,6 @@ impl KeyAction {
             Self::Terminals,
             Self::FindInTerminal,
             Self::ShowFiles,
-            Self::GoToFile,
         ]);
         all
     }
@@ -186,9 +186,10 @@ impl KeyAction {
         matches!(self, Self::SwitchTab(_))
     }
 
-    /// The Files view's own actions (⇧⌘O, ⌥⌘P): unbound and unlisted while it's parked ([`FILES_VIEW`]).
+    /// The Files view's own action (⇧⌘O): unbound and unlisted while it's parked ([`FILES_VIEW`]). ⌥⌘P searches the
+    /// ticket's files (FTB-02) whatever the view.
     pub fn is_files_view(self) -> bool {
-        matches!(self, Self::ShowFiles | Self::GoToFile)
+        matches!(self, Self::ShowFiles)
     }
 
     /// The action's name in Settings, the `?` list and the palette (design `s15-46`). The two halves of a pair drawn
@@ -227,7 +228,7 @@ impl KeyAction {
             Self::Terminals => "Terminals: open, close, leave the terminal",
             Self::FindInTerminal => "Find in terminal scrollback",
             Self::ShowFiles => "Files view",
-            Self::GoToFile => "Go to file (Files view)",
+            Self::GoToFile => "Search the ticket\u{2019}s files",
         }
     }
 
@@ -260,13 +261,13 @@ impl KeyAction {
             | Self::Settings
             | Self::FocusPane
             | Self::NewProjectAgent
-            | Self::ShowFiles
-            | Self::GoToFile => KeyGroup::Views,
+            | Self::ShowFiles => KeyGroup::Views,
             Self::NewTicket
             | Self::OpenPanel
             | Self::ClosePanel
             | Self::ExpandPanel
             | Self::SwitchTab(_)
+            | Self::GoToFile
             | Self::NextTab
             | Self::PreviousTab
             | Self::Approve
@@ -2240,6 +2241,7 @@ mod tests {
                         "Open / close the panel",
                         "Full page / back to the sheet",
                         "Ticket tabs",
+                        "Search the ticket\u{2019}s files",
                         "Next / previous panel tab",
                         "Approve ▾",
                         "Send back",
@@ -2266,8 +2268,8 @@ mod tests {
         );
     }
 
-    /// d0087 (parked 2026-10-18): with the Files view off, ⇧⌘O and ⌥⌘P aren't bound in any column, ⇧⌘B stays, and
-    /// the rest of the map is as with it on.
+    /// d0087 (parked 2026-10-18): with the Files view off, ⇧⌘O isn't bound in any column, ⇧⌘B stays, and the rest of
+    /// the map is as with it on; ⌥⌘P searches the ticket's files either way (FTB-02).
     #[test]
     fn a_parked_files_view_binds_neither_of_its_keys() {
         for platform in [Platform::Mac, Platform::WinLinux] {
@@ -2287,9 +2289,11 @@ mod tests {
         }
         assert!(action_infos().iter().all(|a| !a.action.is_files_view()));
         let off = bindings_for(Platform::Mac, false);
-        for text in ["⇧⌘O", "⌥⌘P"] {
-            assert_eq!(runs(Platform::Mac, false, text, &off), None, "{text}");
-        }
+        assert_eq!(runs(Platform::Mac, false, "⇧⌘O", &off), None);
+        assert_eq!(
+            runs(Platform::Mac, false, "⌥⌘P", &off),
+            Some(KeyAction::GoToFile)
+        );
     }
 
     /// Windows/Linux in or out of a terminal binds the same map (the place of each key says where it works).

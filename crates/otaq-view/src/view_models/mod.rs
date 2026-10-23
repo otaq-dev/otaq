@@ -53,6 +53,7 @@ pub mod epic_review;
 pub mod epic_strip;
 pub mod epic_toast;
 pub mod fields;
+pub mod files_tab;
 pub mod filter;
 pub mod flow_at_work;
 pub mod flow_columns;

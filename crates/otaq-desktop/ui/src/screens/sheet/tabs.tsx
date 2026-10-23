@@ -1,7 +1,7 @@
 // The sheet's tab bodies until each tab's own ticket lands (T-0464): each shows today's panel content so nothing is
-// lost mid-milestone. Session (T-0466): Agent · Run · Shell over today's Terminal, Run and Shell tabs. Files (T-0468):
-// today's Diff tab. Activity (T-0466): History. An epic's Lead (T-0469): the Lead tab. A ticket that replaces one of
-// these registers its own body in place of this file's (Overview is `screens/overview`, T-0465).
+// lost mid-milestone. Session (T-0466): Agent · Run · Shell over today's Terminal, Run and Shell tabs. Activity
+// (T-0466): History. An epic's Lead (T-0469): the Lead tab. A ticket that replaces one of these registers its own body
+// in place of this file's (Overview is `screens/overview`, T-0465; Files `screens/files`, T-0468).
 import { useRegistries } from "../../app/registry";
 import type { TicketProps } from "../../app/registry";
 import { showTab } from "../../app/selection";
@@ -58,7 +58,7 @@ export function SessionTab({ ticket }: TicketProps) {
   );
 }
 
-/** A tab that shows one of today's panel tabs whole (Files, Activity, Lead). */
+/** A tab that shows one of today's panel tabs whole (Activity, Lead). */
 function single(tab: SheetTab) {
   return function SingleTab({ ticket }: TicketProps) {
     const sheet = useSheet();
@@ -67,6 +67,5 @@ function single(tab: SheetTab) {
   };
 }
 
-export const FilesTab = single("files");
 export const ActivityTab = single("activity");
 export const LeadSheetTab = single("lead");

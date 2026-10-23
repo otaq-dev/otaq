@@ -355,6 +355,7 @@ mod tests {
                     keys(&[&["1–4"], &["g", "o / s / f / a"]]),
                     None
                 ),
+                ("Search the ticket\u{2019}s files", keys(&[&["⌥⌘P"]]), None),
                 (
                     "Next / previous panel tab",
                     keys(&[&["⌃Tab / ⌃⇧Tab"]]),
@@ -506,11 +507,10 @@ mod tests {
                 "Re-run validation",
                 "Open diff",
                 "Files view",
-                "Go to file (Files view)",
             ] {
                 assert!(!titles(&list).contains(&title), "{title}");
             }
-            assert_eq!(titles(&list).len(), 25);
+            assert_eq!(titles(&list).len(), 26);
         }
         let list = mac(&CustomKeys(vec![replaced(KeyAction::Park, 0, "g p")]), true);
         let park = row_of(&list, "Park").unwrap();

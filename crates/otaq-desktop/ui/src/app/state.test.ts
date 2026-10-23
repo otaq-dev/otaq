@@ -31,19 +31,19 @@ describe("the selection", () => {
   it("opens a ticket on its first tab, j / k keep the tab, and a new project starts closed (SHT-02)", () => {
     const s = createSelection();
     selectProject("SHOP", s);
-    openTicket("SHOP-22", "diff", s);
+    openTicket("SHOP-22", "files", s);
     focusTerminal("session-1", s);
     expect(s.get()).toEqual({
       project: "SHOP",
       ticket: "SHOP-22",
-      tab: "diff",
+      tab: "files",
       focusedTerminal: "session-1",
     });
 
     stepTicket("SHOP-23", s);
-    expect(s.get().tab).toBe("diff");
+    expect(s.get().tab).toBe("files");
     openTicket("SHOP-23", undefined, s);
-    expect(s.get().tab, "the open ticket keeps it").toBe("diff");
+    expect(s.get().tab, "the open ticket keeps it").toBe("files");
     openTicket("SHOP-24", undefined, s);
     expect(s.get().tab).toBeNull();
     showTab("history", s);
@@ -58,12 +58,12 @@ describe("the selection", () => {
   it("switching projects keeps what each one showed", () => {
     const s = createSelection();
     selectProject("SHOP", s);
-    openTicket("SHOP-22", "diff", s);
+    openTicket("SHOP-22", "files", s);
     focusTerminal("session-1", s);
     selectProject("CREW", s);
     openTicket("CREW-3", "terminal", s);
     selectProject("SHOP", s);
-    expect(s.get()).toEqual({ project: "SHOP", ticket: "SHOP-22", tab: "diff", focusedTerminal: null });
+    expect(s.get()).toEqual({ project: "SHOP", ticket: "SHOP-22", tab: "files", focusedTerminal: null });
     selectProject("CREW", s);
     expect(s.get()).toMatchObject({ project: "CREW", ticket: "CREW-3", tab: "terminal" });
   });
@@ -82,7 +82,7 @@ describe("the leave guard (T-0465: a changed description asks first)", () => {
     }, s);
     showTab("ticket", s);
     expect(s.get().tab).toBe("ticket");
-    showTab("diff", s);
+    showTab("files", s);
     closeTicket(s);
     stepTicket("SHOP-23", s);
     openTicket("SHOP-30", undefined, s);

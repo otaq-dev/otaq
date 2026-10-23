@@ -117,6 +117,8 @@ import { AskBarBody } from "../ask_bar/AskBar";
 import "../ask_bar/ask_bar.css";
 import { OverviewGallery } from "../overview/OverviewGallery";
 import { SheetGallery } from "../sheet/SheetGallery";
+import { FilesGallery } from "../files/FilesGallery";
+import "../files/files.css";
 import { PaneBody, SwitcherList } from "../pane/Pane";
 import "../pane/pane.css";
 import { DrawerBody } from "../terminals/Drawer";
@@ -2703,6 +2705,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="25 · Overview · the description's bar and the Attachments column (T-0465)">
           <OverviewGallery />
+        </Section>
+        <Section title="25 · Files · the tree, a file, search, All changes, a line comment, the review bar (T-0468)">
+          <FilesGallery />
         </Section>
         <EnvVarsSection />
         <WarmSwitchSection />

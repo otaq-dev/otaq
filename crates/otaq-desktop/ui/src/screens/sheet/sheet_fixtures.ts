@@ -93,7 +93,7 @@ export const SHEET: SheetView = {
         { content: "shell", label: "Shell", mark: null },
       ],
     },
-    tab("files", "Files", 3, ["diff"]),
+    tab("files", "Files", 3, ["files"]),
     tab("activity", "Activity", 4, ["history"]),
   ],
   opens_on: "overview",

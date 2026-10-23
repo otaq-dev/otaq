@@ -1,6 +1,6 @@
 //! Review comments and rounds (REV-03; d0017, d0034).
 //!
-//! The user writes **line comments** on a ticket's diff while it is in Ready for Review. A comment is anchored to
+//! The user writes **line comments** on a ticket's diff while it waits in their check. A comment is anchored to
 //! a file, a line and a side (`old` for a removed line, `new` otherwise); a **thread** is every comment on the
 //! same anchor, oldest first, and a reply is a new comment on that anchor. Comments belong to the **current
 //! round** until Send back bundles them into one message for the agent (T-0086), which sets their `sent_at`:
@@ -107,7 +107,8 @@ impl CommentRow {
 const COLUMNS: &str = "id, ticket_id, round, file, line, side, body, created_at, sent_at";
 
 impl Board {
-    /// Adds a line comment to the ticket's current round. Only a ticket in Ready for Review takes comments.
+    /// Adds a line comment to the ticket's current round. Only a ticket waiting in one of your checks takes comments:
+    /// any human check of its flow, whose one status is `WaitingForYou` (FTB-05).
     pub async fn add_comment(&self, new: &NewComment) -> Result<ReviewComment, BoardError> {
         let ticket = self.ticket(&new.key).await?;
         if ticket.is_epic() {
@@ -120,7 +121,7 @@ impl Board {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} is {}; comments are written while it is in Ready for Review",
+                    "{} is {}; comments are written while it waits in your check",
                     ticket.key,
                     ticket.status.label()
                 ),

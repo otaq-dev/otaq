@@ -64,7 +64,7 @@ impl Item {
                     // A suggestion's child never started: its description.
                     Tab::Ticket
                 } else if i.group == NeedsYouGroup::Review {
-                    Tab::Diff
+                    Tab::Files
                 } else {
                     Tab::Terminal
                 },
@@ -894,7 +894,7 @@ mod tests {
             Target::Ticket {
                 project: "SHOP".into(),
                 key: "SHOP-18".into(),
-                tab: Tab::Diff
+                tab: Tab::Files
             }
         );
         assert_eq!(

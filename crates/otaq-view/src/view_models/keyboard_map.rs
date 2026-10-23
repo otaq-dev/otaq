@@ -333,8 +333,8 @@ mod tests {
                     one("Ctrl+Shift+O")
                 ),
                 (
-                    "Go to file (Files view)",
-                    Some("parked with the Files view"),
+                    "Search the ticket\u{2019}s files",
+                    None,
                     one("⌥⌘P"),
                     one("Ctrl+Alt+P"),
                     one("Ctrl+Shift+Alt+P")

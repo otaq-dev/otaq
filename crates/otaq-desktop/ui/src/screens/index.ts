@@ -4,8 +4,8 @@
 export { askBar } from "./ask_bar";
 export { board } from "./board";
 export { components } from "./components";
-export { diff } from "./diff";
 export { editor } from "./editor";
+export { files } from "./files";
 export { flowPreview } from "./flow_preview";
 export { leadTab } from "./lead_tab";
 export { notices } from "./notices";

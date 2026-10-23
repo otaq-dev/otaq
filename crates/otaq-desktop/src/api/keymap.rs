@@ -184,9 +184,14 @@ mod tests {
             ]
         );
         assert_eq!(new_ticket[2]["key"], json!({ "kind": "letter", "letter": "c" }));
-        // The parked Files view's keys aren't bound (d0087 changelog 2026-10-18).
-        assert!(of(json!({ "action": "go_to_file" })).is_empty());
+        // The parked Files view's key isn't bound (d0087 changelog 2026-10-18); ⌥⌘P searches the ticket's files
+        // (FTB-02): Ctrl+Alt+P here, Ctrl+Shift+Alt+P in a terminal.
         assert!(of(json!({ "action": "show_files" })).is_empty());
+        let search: Vec<Value> = of(json!({ "action": "go_to_file" }))
+            .iter()
+            .map(|b| b["text"].clone())
+            .collect();
+        assert_eq!(search, [json!("Ctrl+Alt+P"), json!("Ctrl+Shift+Alt+P")]);
         assert_eq!(map["terminal_keys"][0]["key"], "copy");
         assert_eq!(map["terminal_keys"][0]["keystroke"]["code"], "KeyC");
         assert_eq!(

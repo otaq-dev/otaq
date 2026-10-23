@@ -42,8 +42,9 @@ export interface OverlayParams {
   quick_switcher: undefined;
   /** The command palette, ⌘K / ⇧⌘P (T-0393); `terminal`: a terminal had the keyboard when it opened. */
   command_palette: { terminal: boolean } | undefined;
-  /** The ticket editor on a new Backlog ticket, in an epic if given (T-0228). */
-  new_ticket: { epic?: string } | undefined;
+  /** The ticket editor on a new Backlog ticket, in an epic if given (T-0228); `body` starts the description, and the
+   * whole form opens (New ticket from this file, FTB-03). */
+  new_ticket: { epic?: string; body?: string } | undefined;
   /** The ticket editor on a ticket (T-0228). */
   edit_ticket: { ticket: string };
   /** Settings, on a project's page and on a section if given (T-0234); `agent`: Settings → Agents on that agent's

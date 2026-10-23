@@ -34,6 +34,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.pause" => reply(&otaq_view::view_models::pause::gallery(
             &otaq_view::key_labels::KeyLabels::base(otaq_view::keymap::Platform::Mac),
         )),
+        // The Files tab: the tree and a file, a search, All changes with a line comment, the review bar (T-0468).
+        "gallery.files" => reply(&otaq_view::view_models::files_tab::gallery()),
         // Settings' Environment variables row in each state (T-0300).
         "gallery.env_vars" => reply(&settings_page::env_vars_gallery()),
         // Settings' warm build switch in each state (T-0301).

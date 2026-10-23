@@ -72,7 +72,7 @@ describe("a registry", () => {
 describe("the fixed ids", () => {
   it("sheet tabs: Overview · Session · Files · Activity and an epic's Lead (SHT-02); today's panel tabs inside them", () => {
     expect(SHEET_TABS).toEqual(["overview", "session", "files", "activity", "lead"]);
-    expect(PANEL_TABS).toEqual(["terminal", "diff", "run", "shell", "ticket", "history", "lead"]);
+    expect(PANEL_TABS).toEqual(["terminal", "files", "run", "shell", "ticket", "history", "lead"]);
   });
 
   it("overlays: every id has its modality; popovers and drawers don't hold shortcuts back", () => {
@@ -95,7 +95,7 @@ describe("the fixed ids", () => {
         case "terminal":
         case "shell":
           return "terminal";
-        case "diff":
+        case "files":
         case "run":
         case "ticket":
         case "history":

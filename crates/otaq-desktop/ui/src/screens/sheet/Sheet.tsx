@@ -26,6 +26,7 @@ import { Icon } from "../../theme/Icon";
 import { dropCard } from "../board/Board";
 import { tabIndicator } from "../panel/logic";
 import { DescriptionSaveBar } from "../overview/SaveBar";
+import { ReviewBar } from "../files/ReviewBar";
 import { MoreMenu, PANEL_EVENTS, type PanelActions, usePanelActions } from "../panel/Panel";
 import { contentOf, numberedSheetTab, sheetWidth, shownSheetTab, steppedSheetTab } from "./logic";
 
@@ -335,6 +336,8 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
         <div className="sheet-body" data-tab={shown?.tab}>
           {Body && <Body ticket={view.key} />}
         </div>
+        {/* While the check is yours, under every tab (SHT-06): the sheet then opens on Files (`sheet::opens_on`). */}
+        {sheet.opens_on === "files" && <ReviewBar ticket={view.key} />}
       </section>
     </SheetContext>
   );
@@ -408,12 +411,12 @@ export function useSheetKeys(view: PanelView | null): void {
     "previous_tab",
     useCallback(() => stepTab(-1), [stepTab]),
   );
-  // Open diff (0097, palette only unless the user gives it a key): Files, where the ticket has it.
+  // Open diff (0097, palette only unless the user gives it a key): the Files tab, where the ticket has it.
   useShortcut(
     "open_diff",
     useCallback(() => {
-      if (!current.current?.sheet.tabs.some((t) => t.contents.includes("diff"))) return false;
-      showTab("diff");
+      if (!current.current?.sheet.tabs.some((t) => t.contents.includes("files"))) return false;
+      showTab("files");
       return true;
     }, []),
   );

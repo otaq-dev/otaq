@@ -76,7 +76,7 @@ impl OpenTicket {
             retry_validation: panel_actions::buttons(ticket)
                 .iter()
                 .any(|(a, _)| *a == PanelAction::RetryValidation),
-            diff: panel::tabs(ticket).contains(&Tab::Diff),
+            diff: panel::tabs(ticket).contains(&Tab::Files),
             in_epic: ticket.is_epic() || ticket.epic.is_some(),
         }
     }
@@ -105,7 +105,9 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
         A::RerunValidation => needs_open().or_else(|| {
             (!open.is_some_and(|o| o.retry_validation)).then_some(NO_VALIDATION_TO_RERUN)
         }),
-        A::OpenDiff => needs_open().or_else(|| (!open.is_some_and(|o| o.diff)).then_some(NO_DIFF)),
+        A::OpenDiff | A::GoToFile => {
+            needs_open().or_else(|| (!open.is_some_and(|o| o.diff)).then_some(NO_DIFF))
+        }
         A::FocusEpic => {
             needs_open().or_else(|| (!open.is_some_and(|o| o.in_epic)).then_some(NOT_IN_AN_EPIC))
         }
@@ -135,8 +137,7 @@ pub fn unavailable(action: KeyAction, context: &Context) -> Option<&'static str>
         | A::NewTicket
         | A::OpenPanel
         | A::Terminals
-        | A::ShowFiles
-        | A::GoToFile => None,
+        | A::ShowFiles => None,
     }
 }
 

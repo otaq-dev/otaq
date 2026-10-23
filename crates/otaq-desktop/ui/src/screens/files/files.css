@@ -1,0 +1,741 @@
+/*
+ * *25 → Files* (`s25-07`, `s25-08`, `s25-09`): a 300 px column (the source, the search box, All files · Changed, the
+ * tree) beside the file or All changes; diffs in cards of 20 px mono rows, syntax colours from the theme's status
+ * tokens (keywords purple, strings magenta, functions blue, numbers and types amber), so a theme switch recolours them
+ * at once; the review bar under every tab while the check is yours.
+ */
+.files {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  font: var(--text-body);
+}
+
+.files-spacer,
+.diff-spacer {
+  flex: 1;
+}
+
+.files-quiet,
+.diff-muted {
+  color: var(--text-muted);
+}
+
+.files-quiet {
+  margin: 0;
+  padding: 10px 8px;
+  font-size: 12px;
+}
+
+.files-pick,
+.files-problem {
+  margin: auto;
+  padding: 16px;
+  text-align: center;
+}
+
+/* The left column. */
+.files-side {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 300px;
+  min-height: 0;
+  padding: 12px 10px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.files-side > .segmented {
+  align-self: stretch;
+}
+
+.files-source {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  outline: 1px solid var(--border-strong);
+  outline-offset: -1px;
+  color: var(--text-muted);
+}
+
+.files-source-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.files-source-title {
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.files-source-sub {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border-radius: 7px;
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+  background: var(--bg-panel);
+  color: var(--text-muted);
+}
+
+.files-search:focus-within {
+  outline: 1.5px solid var(--focus);
+  outline-offset: -1.5px;
+}
+
+.files-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+
+.files-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.files-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.files-row {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-primary);
+  font: 400 12.5px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.files-row:hover {
+  background: var(--bg-hover);
+}
+
+.files-row[data-selected] {
+  background: var(--selection);
+}
+
+.files-row[data-selected] .files-name {
+  font-weight: 500;
+}
+
+.files-row:focus-visible,
+.files-link:focus-visible,
+.diff-gutter:focus-visible,
+.diff-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.files-row:disabled {
+  cursor: default;
+}
+
+.files-row > .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.files-chevron-room {
+  flex: none;
+  width: 12px;
+}
+
+.files-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A file nobody changed reads quieter (`s25-07`). */
+.files-row[data-quiet] .files-name {
+  color: var(--text-secondary);
+}
+
+.files-match-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.files-folder {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-hit {
+  border-radius: 2px;
+  background: var(--accent-soft);
+  color: inherit;
+  font-weight: 600;
+}
+
+.files-letter {
+  flex: none;
+  font: 600 11px var(--font-mono);
+}
+
+.files-letter[data-status="modified"] {
+  color: var(--st-paused);
+}
+
+.files-letter[data-status="added"] {
+  color: var(--st-approved);
+}
+
+.files-letter[data-status="deleted"] {
+  color: var(--st-error);
+}
+
+.files-letter[data-status="renamed"] {
+  color: var(--st-investigate);
+}
+
+/* Some of it isn't committed yet (FTB-01). */
+.files-uncommitted {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--st-paused);
+}
+
+.files-counts {
+  flex: none;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+  white-space: nowrap;
+}
+
+.files-tag {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg-column);
+  color: var(--text-secondary);
+  font: 500 10.5px var(--font-mono);
+}
+
+.files-tag[data-writing] {
+  background: var(--st-working-bg);
+  color: var(--st-working);
+}
+
+/* The right side: its own stacking context, so sticky parts stay under the app's overlays. */
+.files-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow: auto;
+  isolation: isolate;
+  background: var(--bg-panel);
+}
+
+.files-changes,
+.files-file {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+.files-main-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.files-main-title {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.files-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.files-mono {
+  font-family: var(--font-mono);
+}
+
+.files-subtitle {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.files-change {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.files-change-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.files-change-name {
+  min-width: 0;
+  color: var(--text-primary);
+  font: 600 12.5px var(--font-mono);
+  overflow-wrap: break-word;
+}
+
+.files-note {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.files-link,
+.diff-link {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.files-card {
+  padding: 8px 0;
+  overflow: hidden;
+  border-radius: 8px;
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+  background: var(--bg-card);
+}
+
+/* The review notes above All changes: how it reached Review, the agent's summary, decisions, the report. */
+.files-notes {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 8px;
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+}
+
+.files-notes > :last-child {
+  border-bottom: none;
+}
+
+.diff-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-app);
+}
+
+.diff-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: var(--text-meta);
+  text-align: left;
+  cursor: pointer;
+}
+
+.diff-summary-head .icon:nth-child(2) {
+  color: var(--st-investigate);
+}
+
+.diff-summary-title {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.diff-summary-text {
+  margin: 0;
+  padding-left: 36px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* The recorded decisions (DEC-04); a long list scrolls on its own. */
+.diff-decisions {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* How it reached Review (T-0238; *07 → SHOP-18 · Diff · Validated · round 2*) and the foot under a failed report. */
+.diff-entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+}
+
+.diff-entry-foot {
+  margin: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.diff-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 14px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.diff-note[data-rename] .icon {
+  color: var(--st-investigate);
+}
+
+.diff-hunk-header {
+  height: 20px;
+  padding-left: 22px;
+  overflow: hidden;
+  background: var(--bg-column);
+  color: var(--text-muted);
+  font: 400 12px/20px var(--font-mono);
+  white-space: pre;
+}
+
+/* Rows out of view are skipped by layout and paint; their room is kept from the row count. */
+.diff-chunk {
+  content-visibility: auto;
+}
+
+.diff-line,
+.diff-half {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+}
+
+.diff-line[data-kind="added"],
+.diff-half[data-kind="added"] {
+  background: var(--diff-add-bg);
+}
+
+.diff-line[data-kind="removed"],
+.diff-half[data-kind="removed"] {
+  background: var(--diff-del-bg);
+}
+
+.diff-side-row {
+  display: flex;
+}
+
+.diff-half {
+  flex: 1;
+  min-width: 0;
+}
+
+.diff-half + .diff-half {
+  border-left: 1px solid var(--border);
+}
+
+.diff-half[data-blank] {
+  background: var(--bg-column);
+}
+
+.diff-gutter {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-self: stretch;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+}
+
+.diff-gutter[data-commentable] {
+  cursor: pointer;
+}
+
+.diff-gutter[data-commentable]:hover {
+  background: var(--accent-soft);
+}
+
+.diff-plus {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: 600 12px/16px var(--font-ui);
+  text-align: center;
+}
+
+.diff-gutter[data-commentable]:hover .diff-plus,
+.diff-gutter[data-commentable]:focus-visible .diff-plus {
+  display: block;
+}
+
+.diff-num {
+  box-sizing: border-box;
+  width: 40px;
+  padding-right: 8px;
+  font: 400 11.5px/20px var(--font-mono);
+  text-align: right;
+}
+
+.diff-sign {
+  flex: none;
+  width: 16px;
+  color: var(--text-muted);
+  font: 400 11.5px/20px var(--font-mono);
+}
+
+.diff-code {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  font: 400 12px/20px var(--font-mono);
+  tab-size: 4;
+  white-space: pre;
+}
+
+.tok[data-token="keyword"] {
+  color: var(--st-investigate);
+}
+
+.tok[data-token="string"] {
+  color: var(--st-review);
+}
+
+.tok[data-token="number"],
+.tok[data-token="type"] {
+  color: var(--st-paused);
+}
+
+.tok[data-token="comment"] {
+  color: var(--text-muted);
+}
+
+.tok[data-token="function"] {
+  color: var(--st-working);
+}
+
+/* A line's comments (`s25-09`): cards in the review tint, under the line. */
+.diff-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px 8px 52px;
+}
+
+.diff-comment {
+  display: flex;
+  gap: 8px;
+  max-width: 760px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+  background: var(--bg-raised);
+  font-family: var(--font-ui);
+}
+
+.diff-comment[data-pending] {
+  outline-color: var(--st-review);
+  background: var(--st-review-bg);
+}
+
+.diff-avatar {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+}
+
+.diff-comment-main,
+.diff-composer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.diff-comment-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.diff-author {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.diff-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.diff-comment-body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.diff-composer-input {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  background: var(--bg-card);
+}
+
+.diff-composer-error {
+  margin: 0;
+  color: var(--st-error);
+  font-size: 12px;
+}
+
+.diff-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.diff-composer-hint {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+
+.diff-reply {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.diff-empty {
+  max-width: 440px;
+  border-radius: 8px;
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+}
+
+.diff-empty-head {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-app);
+  font: 500 12px var(--font-mono);
+}
+
+.diff-empty p {
+  margin: 0;
+  padding: 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* The review bar (SHT-06, `s25-09`): the sheet's foot while the check is yours. */
+.files-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--st-review-bg);
+  color: var(--st-review);
+}
+
+.files-bar-title {
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.files-bar-line {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-bar-button {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}

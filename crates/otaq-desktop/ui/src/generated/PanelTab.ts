@@ -4,4 +4,4 @@
  * Today's panel tabs, in the sheet's tabs ([`super::sheet::SheetTab::contents`]); a ticket has the first six, an
  * epic [`epic_tabs`] (with Lead). `PanelTab` on the page, where each tab's screen registers it (T-0212).
  */
-export type PanelTab = "terminal" | "diff" | "run" | "shell" | "ticket" | "history" | "lead";
+export type PanelTab = "terminal" | "files" | "run" | "shell" | "ticket" | "history" | "lead";
