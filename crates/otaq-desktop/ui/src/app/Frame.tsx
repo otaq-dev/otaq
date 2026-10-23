@@ -14,7 +14,6 @@ import { useTheme } from "../theme/theme";
 import { layoutView, loadLayout, mainWidth, type ShellLayout, shellLayout } from "./layout";
 import { closeOverlay, useOpenOverlays } from "./overlays";
 import { type OverlayId, type OverlayProps, type SlotId, useRegistries } from "./registry";
-import { OVERLAY_MAIN_AREA } from "./registry/overlays";
 import { useSelection } from "./selection";
 import { useStore } from "./store";
 
@@ -37,14 +36,13 @@ function Placeholder({ name }: { name: string }) {
   return <div className="frame-placeholder">{name}</div>;
 }
 
-/** The open overlays of one host: the window's, or the main area's (`OVERLAY_MAIN_AREA`). */
-function Overlays({ mainArea }: { mainArea: boolean }) {
+/** The open overlays, over the whole window. */
+function Overlays() {
   const app = useRegistries();
   const open = useOpenOverlays();
   return (
     <>
       {open.map((overlay) => {
-        if (Boolean(OVERLAY_MAIN_AREA[overlay.id]) !== mainArea) return null;
         const entry = app.overlays.get(overlay.id);
         if (!entry) return null;
         // Each id's component takes that id's params; `OpenOverlay` pairs them, which TypeScript can't follow here.
@@ -66,20 +64,7 @@ function Overlays({ mainArea }: { mainArea: boolean }) {
 function OverlayHost() {
   return (
     <div className="frame-layer" id={OVERLAY_HOST_ID} data-slot="overlays">
-      <Overlays mainArea={false} />
-    </div>
-  );
-}
-
-/**
- * The main area's own overlay layer (FLW-04's preview): over the board, the ticket panel and the Ask bar, while the
- * rail, the header and the Project agent panel beside it stay usable. Empty, it takes no clicks.
- */
-function MainAreaHost() {
-  return (
-    <div className="frame-main-layer" data-slot="main_overlays">
-      <Slot id="main_area" />
-      <Overlays mainArea />
+      <Overlays />
     </div>
   );
 }
@@ -161,7 +146,6 @@ export function FrameBody({ view, layout, ticketOpen, bannerFallback, mainRef }:
         <div className="frame-ask" data-slot="ask_bar">
           <Slot id="ask_bar" />
         </div>
-        <MainAreaHost />
       </div>
     </>
   );

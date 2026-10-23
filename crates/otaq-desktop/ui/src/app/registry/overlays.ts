@@ -110,14 +110,12 @@ export interface OverlayParams {
   gallery: undefined;
   /** A description over the whole window (T-0260); `owner` is the form or Ticket tab that draws into it. */
   full_view: { owner: string };
-  /** The flow preview of a project's open proposal (T-0420, FLW-04), over the main area beside the Project agent
-   * pane; `focus`: the user opened it (Settings → Flow), so the keyboard moves into it. */
-  flow_preview: { project: string; focus?: boolean };
   /** Apply now on a project's waiting flow change (T-0439, APN-02), from the flow change banner. */
   apply_now: { project: string };
-  /** The flow editor over the window (T-0471, FED-01): onboarding's Flow step or the project's; a stage to select
-   * (Edit <stage>…) or to add a new one after (Add a stage after <stage>). T-0473 opens it from every entry. */
-  flow_editor: { project: string; from: FlowEditorFrom; select_stage?: string; add_after?: string };
+  /** The flow editor over the window (T-0471, FED-01, FED-09): the project's flow, from the project menu, a column's
+   * ⋯ or Settings → Flow; a stage to select (Edit <stage>…) or to add a new one after (Add a stage after <stage>;
+   * `null`: first, after Ready for Dev). Onboarding's Flow step and the Flow setup page embed its body. */
+  flow_editor: { project: string; from: FlowEditorFrom; select_stage?: string; add_after?: string | null };
   /** A comment's report, or a paste not posted yet, read-only over the panel (CMT-12, T-0447). */
   report: ReportOpenParams;
 }
@@ -162,18 +160,10 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   shortcuts: true,
   gallery: true,
   full_view: true,
-  // The pane beside it stays usable: typing and shortcuts go on (FLW-04).
-  flow_preview: false,
   apply_now: true,
   flow_editor: true,
   report: true,
 };
-
-/**
- * The overlays drawn over the main area only (FLW-04's preview), not the whole window: the rail, the header and the
- * Project agent pane stay visible and usable beside them. The frame draws them in the main area's own layer.
- */
-export const OVERLAY_MAIN_AREA: Partial<Record<OverlayId, true>> = { flow_preview: true };
 
 export const OVERLAY_IDS = Object.keys(OVERLAY_MODAL) as OverlayId[];
 

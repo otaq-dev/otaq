@@ -302,6 +302,9 @@ pub struct StepRow {
     pub avatar: Option<ToolAvatarView>,
     pub who: Option<String>,
     pub mark: Option<MarkView>,
+    /// A stage the flow in use doesn't have, added in the editor (a column's Add a stage after <stage>, **+**, Add a
+    /// stage): drawn dashed until it applies (FED-09, `s27-05`). A stage the agent added has its mark instead.
+    pub added: bool,
     /// Its problem from the check, in the error colour.
     pub problem: Option<String>,
     pub selected: bool,
@@ -784,6 +787,7 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
         avatar: None,
         who: None,
         mark: None,
+        added: false,
         problem: None,
         selected: false,
         draggable: false,
@@ -809,6 +813,8 @@ fn steps_list(f: &Facts) -> Vec<StepRow> {
             avatar,
             who,
             mark: mark_of(f.marks, &stage.id).map(mark_view),
+            added: mark_of(f.marks, &stage.id).is_none()
+                && f.in_use.flow.stage(&stage.id).is_none(),
             problem: stage_problem(f.proposal, &stage.id),
             selected: f.selected == Some(stage.id.as_str()),
             draggable: !stage.is_delivery(),
@@ -1754,8 +1760,8 @@ pub struct Gallery {
 
 pub fn gallery() -> Gallery {
     use fixtures::*;
-    let tools = crate::view_models::flow_at_work::fixtures::tools();
-    let setup = crate::view_models::flow_at_work::fixtures::setup(
+    let tools = crate::view_models::flow_setup_page::fixtures::tools();
+    let setup = crate::view_models::flow_setup_page::fixtures::setup(
         FlowSetupRow::NotAsked,
         FlowSetupRow::NotAsked,
     );
@@ -1940,7 +1946,7 @@ mod tests {
 
     use super::fixtures::*;
     use super::*;
-    use crate::view_models::flow_at_work::fixtures as setup;
+    use crate::view_models::flow_setup_page::fixtures as setup;
 
     struct Draft {
         proposal: Proposal,
@@ -2709,5 +2715,48 @@ mod tests {
     #[test]
     fn the_gallery_builds() {
         assert_eq!(gallery().cells.len(), 2);
+    }
+
+    /// FED-09 (`s26-08`, `s27-05`): each column ⋯ entry opens the editor over shop-web's flow in use. Edit Grill…
+    /// selects Grill with its details; Add a stage after Grill puts a new stage right after it, selected, dashed, its
+    /// details open, Apply on; Change the whole flow… opens on the legend with nothing to apply.
+    #[test]
+    fn each_column_entry_opens_the_editor_in_its_state() {
+        let e = env(not_asked());
+        let file = shop_web();
+        let d = draft(&file, true);
+
+        let edit = render(&e, Opened::Project, &d, &file, &file, Some("grill"), None);
+        assert!(edit.flow.steps[1].selected && !edit.flow.steps[1].added);
+        assert_eq!(
+            edit.flow.details.as_ref().map(|d| d.title.as_str()),
+            Some("Grill")
+        );
+
+        let (added, select) = edited(
+            &file,
+            &StageEdit::Add {
+                after: Some("grill".into()),
+            },
+        )
+        .unwrap();
+        let select = select.expect("the new stage is selected");
+        let d = draft(&added, false);
+        let add = render(&e, Opened::Project, &d, &added, &file, Some(&select), None);
+        let new = &add.flow.steps[2];
+        assert_eq!(new.id, select);
+        assert!(
+            new.selected && new.added,
+            "the new stage is dashed and selected"
+        );
+        assert!(add.flow.steps.iter().filter(|s| s.added).count() == 1);
+        assert!(add.flow.details.is_some(), "its details open");
+        assert!(add.flow.folded);
+
+        let d = draft(&file, true);
+        let whole = render(&e, Opened::Project, &d, &file, &file, None, None);
+        assert!(whole.flow.details.is_none() && !whole.flow.folded);
+        assert!(whole.flow.steps.iter().all(|s| !s.selected && !s.added));
+        assert_eq!(whole.footer.apply, "No changes");
     }
 }

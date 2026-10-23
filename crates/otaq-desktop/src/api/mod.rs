@@ -47,8 +47,6 @@ pub use files::{
 #[cfg(test)]
 pub use flow_editor::export_types as export_flow_editor_types;
 #[cfg(test)]
-pub use flow_preview::export_types as export_flow_preview_types;
-#[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
 pub use lead::{Load as LeadTabLoad, Params as LeadTabParams};
@@ -57,11 +55,7 @@ pub use notices::{
     DismissBanner, HoldToast, NoticesProject, NotificationOpen, ToastId, ToastPress,
 };
 #[cfg(test)]
-pub use onboarding::export_flow_at_work_types;
-#[cfg(test)]
 pub use onboarding::export_flow_setup_page_types;
-#[cfg(test)]
-pub use onboarding::export_flow_step_types;
 #[cfg(test)]
 pub use onboarding::{
     AddOutcome as AddProjectOutcome, FormParams as AddProjectParams, Start as OnboardingStart,
@@ -212,7 +206,6 @@ areas! {
     limits,
     palette,
     pause,
-    flow_preview,
     flow_editor,
     apply_now,
     ticket_comments,

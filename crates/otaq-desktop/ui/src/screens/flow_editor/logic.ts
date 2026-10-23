@@ -5,6 +5,7 @@
 // Nothing here starts an agent without the user's words, a chip or an Ask (d0087).
 import { openOverlay } from "../../app/overlays";
 import { createStore, type Store } from "../../app/store";
+import type { BoardColumnEditor } from "../../generated/BoardColumnEditor";
 import type { FlowEditorChipAction } from "../../generated/FlowEditorChipAction";
 import type { FlowEditorEdited } from "../../generated/FlowEditorEdited";
 import type { FlowEditorFrom } from "../../generated/FlowEditorFrom";
@@ -18,20 +19,43 @@ import { request } from "../../tauri";
 export type Ask = (method: string, params?: unknown) => Promise<unknown>;
 
 /**
- * The editor's entry point (T-0473 points onboarding's Flow step, the project menu and a column's ⋯ here): the
- * project, where it opened, and optionally a stage to select (Edit <stage>…) or one to add a new stage after (Add a
- * stage after <stage>, the new one selected with its details open).
+ * Where the editor opens over the board (FED-09): the project, where it opened, and optionally a stage to select
+ * (Edit <stage>…) or one to add a new stage after (Add a stage after <stage>, the new one selected with its details
+ * open; `null`: first, after Ready for Dev). Onboarding's Flow step and the Flow setup page draw it in place instead.
  */
 export interface FlowEditorOpen {
   project: string;
   from: FlowEditorFrom;
   select_stage?: string;
-  add_after?: string;
+  add_after?: string | null;
 }
 
 /** Opens the editor over the window. */
 export function openFlowEditor(open: FlowEditorOpen): void {
   openOverlay("flow_editor", open);
+}
+
+/** The project menu's Change flow…, Settings → Flow's Change flow… and a column's Change the whole flow…. */
+export function changeFlowOpen(project: string): FlowEditorOpen {
+  return { project, from: "project" };
+}
+
+/** How a column's ⋯ item (BRD-04) opens the editor on its project: that stage selected, a new stage after it, or the
+ * whole flow. */
+export function columnEditorOpen(project: string, editor: BoardColumnEditor): FlowEditorOpen {
+  switch (editor.open) {
+    case "stage":
+      return { project, from: "project", select_stage: editor.stage };
+    case "add_after":
+      return { project, from: "project", add_after: editor.after };
+    case "flow":
+      return changeFlowOpen(project);
+  }
+}
+
+/** The edit that adds the stage a column's Add a stage after <stage> asked for, on opening. */
+export function addOnOpening(after: string | null): FlowEditorStageEdit {
+  return after === null ? { edit: "add" } : { edit: "add", after };
 }
 
 /** The agent each project's editor panel shows, once one was asked (the page's own state, like the pane's). */

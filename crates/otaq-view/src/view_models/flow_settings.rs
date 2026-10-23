@@ -1,8 +1,8 @@
 //! Settings → Flow, a project's section (FLW-07…FLW-11, d0108; *15 → Row · The project's Flow section*, *Row · Use a
 //! preset*): who changed the flow and when, the read-only stage table, the waiting change with Cancel change, and the
-//! actions. Every action but Export opens the preview (`flow.propose_from`; the preview follows the `proposed`
-//! event); **Change with the Project agent** starts a Project agent with [`FLOW_COMMAND`]. The Use a preset… dialog
-//! and the Copy from another project… list are here too, and the toasts of a waiting change applied or cancelled.
+//! actions. **Change flow…** opens the flow editor (FED-09, d0115); every other action but Export puts its flow in the
+//! editor's draft (`flow.propose_from`) and opens the editor on it. The Use a preset… dialog and the Copy from another
+//! project… list are here too, and the toasts of a waiting change applied or cancelled.
 
 use otaq_core::agents::{Agent, AgentList};
 use otaq_core::board::snapshot::ProjectInfo;
@@ -14,7 +14,6 @@ use otaq_core::flow::model::{
 use otaq_core::flow::presets::{Preset, presets};
 use otaq_core::flow::store::{AppliedBy, FlowVersion};
 use otaq_core::naming::{DEFAULT_FLOW_FILE, PRODUCT_NAME};
-pub use otaq_core::project_agents::FLOW_COMMAND;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -84,9 +83,8 @@ pub struct Section {
     pub rows: Vec<StageRow>,
     /// The applied flow doesn't read (never stored so; a guard): shown in place of the table.
     pub problem: Option<String>,
-    /// Change with the Project agent: starts a Project agent in this project with `change_message`.
+    /// Change flow…: opens the flow editor on the project's flow.
     pub change: Button,
-    pub change_message: String,
     pub preset: Button,
     pub copy: Button,
     /// The ⋯ button's name, and its menu: Import flow… · Export flow… · Back to the previous flow · Reset to the
@@ -115,10 +113,10 @@ pub struct Inputs<'a> {
 }
 
 pub const TITLE: &str = "Flow";
-pub const INTRO: &str = "The project\u{2019}s columns and who works in each. Change it by asking; every change opens a preview first.";
+pub const INTRO: &str = "The project\u{2019}s columns and who works in each. Change it in the flow editor; nothing reaches the board until you apply.";
 pub const ENDS: &str =
     "Backlog \u{2192} Ready for Dev \u{2192} \u{2026} \u{2192} Done: always first and last";
-pub const CHANGE_WITH_THE_PROJECT_AGENT: &str = "Change with the Project agent";
+pub const CHANGE_FLOW: &str = "Change flow\u{2026}";
 pub const USE_A_PRESET: &str = "Use a preset\u{2026}";
 pub const COPY_FROM_ANOTHER_PROJECT: &str = "Copy from another project\u{2026}";
 pub const NO_OTHER_PROJECT: &str = "No other project to copy from";
@@ -153,8 +151,7 @@ pub fn section(input: &Inputs) -> Section {
         ends: ENDS.to_owned(),
         rows,
         problem,
-        change: button(CHANGE_WITH_THE_PROJECT_AGENT, Some(IconName::Bot)),
-        change_message: FLOW_COMMAND.to_owned(),
+        change: button(CHANGE_FLOW, Some(IconName::Workflow)),
         preset: button(USE_A_PRESET, None),
         copy: Button {
             disabled: input.other_projects == 0,
@@ -671,8 +668,8 @@ mod tests {
             ]
         );
         assert_eq!(s.waiting, None);
-        assert_eq!(s.change.label, "Change with the Project agent");
-        assert_eq!(s.change_message, "/flow");
+        assert_eq!(s.change.label, "Change flow\u{2026}");
+        assert_eq!(s.change.icon, Some(IconName::Workflow));
         assert_eq!(s.preset.label, "Use a preset\u{2026}");
         assert!(!s.copy.disabled);
         let menu: Vec<(&str, &str, bool)> = s

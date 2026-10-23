@@ -665,6 +665,7 @@ describe("the board screen", () => {
         header: false,
       },
       change: { kind: "fold_column" as const, column: "review", folded: true },
+      editor: null,
     },
   ];
 

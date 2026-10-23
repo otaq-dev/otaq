@@ -139,18 +139,6 @@ body {
   box-shadow: none;
 }
 
-/* The main area's overlay layer (the flow preview, FLW-04): above the ticket panel, under the window's overlays. */
-.frame-main-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 9;
-  pointer-events: none;
-}
-
-.frame-main-layer > * {
-  pointer-events: auto;
-}
-
 /*
  * The overlay and toast hosts cover the window; only what they draw takes clicks. A fixed box is a stacking context
  * of its own, so its dialogs' z-index counts only inside it: the host itself goes above the board's fixed layers (the

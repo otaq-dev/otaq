@@ -13,6 +13,7 @@ use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::protocol::{ProjectParams, Reply, Request};
 use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::terminals::run::RunInfo;
+use otaq_core::tools::Os;
 use otaq_core::usage::activity::Activity;
 use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
@@ -20,6 +21,7 @@ use otaq_view::shell::tilde;
 use otaq_view::view_models::activity::{self, Button as ActivityButton, Inputs};
 use otaq_view::view_models::flow_setup_page::{self, Header as HeaderFlowSetup};
 use otaq_view::view_models::limits::{self, Field, Popover};
+use otaq_view::view_models::project_menu::{self, ProjectMenu};
 use otaq_view::view_models::search_page;
 use otaq_view::view_models::switcher::{self, QuickRow, RAIL_WIDTH, RailBottom, RailItem};
 use otaq_view::view_models::tool_avatar::{self, AvatarTool};
@@ -39,6 +41,10 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "shell.project_for_digit" => reply(&project_for_digit(app, parse(params)?)),
         "shell.step_limit" => reply(&step_limit(app, parse(params)?).await?),
         "shell.cleanup" => reply(&cleanup(app).await?),
+        "shell.open_folder" => {
+            open_folder(app, parse(params)?).await?;
+            Ok(Value::Null)
+        }
         _ => Err(unknown(method)),
     }
 }
@@ -58,9 +64,9 @@ pub struct Params {
     pub project: Option<String>,
 }
 
-/// The shown project at the header's start: "shop-web" and its base branch; the folder on the name's hover and in
-/// its menu's "Copy path".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+/// The shown project at the header's start: "shop-web" and its base branch; the folder on the name's hover, and the
+/// project menu on a click (FED-09).
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "HeaderProject")]
 pub struct Project {
     pub key: String,
@@ -68,10 +74,11 @@ pub struct Project {
     pub base_branch: String,
     /// "~/code/shop-web": the name's hover.
     pub path: String,
-    /// The full folder, which "Copy path" copies.
+    /// The full folder, which Open in Finder opens.
     pub repo_path: String,
-    /// The name's menu item.
-    pub copy_path: &'static str,
+    /// The project menu (FED-09, `s26-08`): Change flow… with the flow in use, Export flow…, Project settings…, Open
+    /// in Finder, Open a terminal here.
+    pub menu: ProjectMenu,
     /// While the project is in Flow setup (ASK-04): "Flow setup" and "2 agents at work" or "2 proposals" after the
     /// name, in place of the base branch.
     pub flow_setup: Option<HeaderFlowSetup>,
@@ -96,7 +103,7 @@ impl Hint {
 
 /// The header, left to right (*02 → Row · Header states (0086 · V)*): exactly four items. New ticket, Terminals,
 /// Settings, the tokens, the plan's windows, the agents and the processes are not in it (SHL-02).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "HeaderView")]
 pub struct Header {
     /// `None` before the first project.
@@ -212,6 +219,9 @@ pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
     if let (Some(project), Some(setup)) = (view.project.as_mut(), setup.as_ref()) {
         project.flow_setup = flow_setup_page::header(setup);
     }
+    if let Some(project) = view.project.as_mut() {
+        project.menu = flow_menu(app, project, &keys).await;
+    }
     // "5 paused" while the shown project is (PAU-08); without the counts Activity reads as before.
     if let Some(chip) = paused
         .ok()
@@ -232,18 +242,64 @@ fn header_view(
         project: projects
             .iter()
             .find(|p| Some(p.key.as_str()) == shown)
-            .map(|p| Project {
-                key: p.key.clone(),
-                name: p.name.clone(),
-                base_branch: p.base_branch.clone(),
-                path: tilde(&p.repo_path),
-                repo_path: p.repo_path.clone(),
-                copy_path: "Copy path",
-                flow_setup: None,
+            .map(|p| {
+                let path = tilde(&p.repo_path);
+                Project {
+                    key: p.key.clone(),
+                    name: p.name.clone(),
+                    base_branch: p.base_branch.clone(),
+                    menu: project_menu::menu(&project_menu::Facts {
+                        name: &p.name,
+                        path: &path,
+                        flow: None,
+                        waiting: None,
+                        os: Os::current(),
+                        keys,
+                    }),
+                    path,
+                    repo_path: p.repo_path.clone(),
+                    flow_setup: None,
+                }
             }),
         search: Hint::new(search_page::PLACEHOLDER, KeyAction::FilterBoard, keys),
         activity: activity::button(activity, keys),
     }
+}
+
+/// The project menu with the project's flow in use and its waiting change, if the service answers them.
+async fn flow_menu(app: &App, project: &Project, keys: &KeyLabels) -> ProjectMenu {
+    let params = || ProjectParams {
+        project: project.key.clone(),
+    };
+    let (current, waiting) = tokio::join!(
+        optional(app, Request::FlowCurrent(params()), |r| match r {
+            Reply::FlowVersion(v) => v.file().ok(),
+            _ => None,
+        }),
+        optional(app, Request::FlowWaiting(params()), |r| match r {
+            Reply::FlowWaiting(w) => w.map(|w| *w),
+            _ => None,
+        }),
+    );
+    project_menu::menu(&project_menu::Facts {
+        name: &project.name,
+        path: &project.path,
+        flow: current.as_ref(),
+        waiting: waiting.as_ref(),
+        os: Os::current(),
+        keys,
+    })
+}
+
+/// `shell.open_folder {project}`: Open in Finder, the project's folder in the file manager.
+async fn open_folder(app: &App, params: ProjectParams) -> Result<(), RequestError> {
+    let folder = projects(app)
+        .await?
+        .into_iter()
+        .find(|p| p.key == params.project)
+        .map(|p| p.repo_path)
+        .ok_or_else(|| RequestError::plain(format!("no project {}", params.project)))?;
+    open::that_detached(&folder).map_err(|e| RequestError::plain(e.to_string()))
 }
 
 /// The Activity popover (⇧⌘U or a click on Activity).
@@ -479,7 +535,11 @@ mod tests {
 
         let shown = view.project.unwrap();
         assert_eq!((shown.name.as_str(), shown.base_branch.as_str()), ("notes-api", "main"));
-        assert_eq!((shown.path.as_str(), shown.copy_path), ("/code/notes-api", "Copy path"));
+        assert_eq!(shown.path, "/code/notes-api");
+        assert_eq!(shown.menu.title, "notes-api");
+        let menu: Vec<&str> = shown.menu.items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(menu[0], "Change flow\u{2026}");
+        assert_eq!(menu.len(), 5);
         assert_eq!(view.activity.agents.count, "3");
         assert_eq!(view.activity.processes.as_deref(), Some("2"));
         assert_eq!(view.activity.warning.unwrap().text, "5h 18% left");
@@ -622,9 +682,13 @@ mod tests {
         assert_eq!(settled["shows"], false);
 
         // Skip, use the default: the board, and the marks go.
-        request(&h.app, "onboarding.use_default", json!({ "project": bill.key }))
-            .await
-            .unwrap();
+        request(
+            &h.app,
+            "flow_editor.cancel",
+            json!({ "project": bill.key, "from": "onboarding" }),
+        )
+        .await
+        .unwrap();
         let header = request(&h.app, "shell.header", json!({ "project": bill.key }))
             .await
             .unwrap();

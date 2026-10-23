@@ -1,14 +1,12 @@
-//! A later project's **Flow setup page** (T-0436; ASK-04, ASK-08, d0108 "Each connected tool's agent looks for
-//! itself, when the user asks" and its changelog of 2026-10-21; *14 → Row · Another project, and the presets*
-//! `s14-18`/`s14-19`, update AL): a project added after another one's flow is settled shows this page instead of its
-//! board until its flow is settled (Use this flow, a preset applied, Use the default or Skip). Its body is the Flow
-//! step's (the go-ahead, the agents at work, the proposals compared), so this model only says when the page shows and
-//! what the title bar and the sidebar call it:
+//! A later project's **Flow setup page** (T-0436; ASK-04, d0108 "Each connected tool's agent looks for itself, when
+//! the user asks"; FED-09, d0115): a project added after another one's flow is settled shows this page instead of its
+//! board until its flow is settled (Use this flow or Skip, use the default). Its body is the flow editor from Otaq
+//! default, as onboarding's Flow step (`flow_editor.rs`), so this model only says when the page shows and what the
+//! title bar and the sidebar call it:
 //!
 //! - **Title bar:** "billing-api · Flow setup" with "2 agents at work" (blue, while an agent works and nothing is
 //!   proposed yet) or "2 proposals" (green, once one is).
 //! - **Sidebar:** the project's tile is marked "Flow setup".
-//! - **No tool connected:** the presets, Skip and Back to Tools, which opens Settings → Agent tools here.
 
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::project_agents::first_flow::{FlowSetup, FlowSetupRow};
@@ -22,9 +20,6 @@ use crate::view_models::status::PillView;
 /// The mark of a project in Flow setup, in the title bar and the sidebar.
 pub const FLOW_SETUP: &str = "Flow setup";
 
-/// Settings' section that Back to Tools opens on the page (first run goes to its Tools step instead).
-pub const BACK_TO_TOOLS_SECTION: &str = "agent_tools";
-
 /// `onboarding.flow_setup_page {project}`: whether the shown project's main area is its Flow setup page instead of its board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowSetupPageView")]
@@ -33,8 +28,6 @@ pub struct Page {
     pub project: String,
     /// The project is in Flow setup: the page shows, not the board.
     pub shows: bool,
-    /// The Settings section Back to Tools opens ("agent_tools").
-    pub back_to_tools: &'static str,
 }
 
 /// The page for `project` among `projects`: shown while that project is in Flow setup.
@@ -42,7 +35,6 @@ pub fn page(projects: &[ProjectInfo], project: &str) -> Page {
     Page {
         project: project.to_owned(),
         shows: in_flow_setup(projects, project),
-        back_to_tools: BACK_TO_TOOLS_SECTION,
     }
 }
 
@@ -108,12 +100,69 @@ pub fn rail_mark(project: &ProjectInfo) -> Option<String> {
     project.flow_setup_since.map(|_| FLOW_SETUP.to_owned())
 }
 
+/// shop-web's Flow setup with Claude Code and OpenCode connected (`s14-14`), for the galleries and the tests.
+pub mod fixtures {
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::agent_tools::connected::AgentToolState;
+    use otaq_core::project_agents::first_flow::{FlowSetup, FlowSetupRow, FlowSetupTool};
+
+    use crate::view_models::tool_problems::Tools;
+    use crate::view_models::tool_problems::fixtures::{connected, status};
+
+    /// 2026-10-21 12:33 UTC.
+    pub const NOW: i64 = 1_792_585_980_000;
+    /// The flow agents' ids.
+    pub const CC: &str = "a-cc";
+    pub const OC: &str = "a-oc";
+    pub const CLAUDE: Tool = Tool::ALL[0];
+    pub const OPENCODE: Tool = Tool::ALL[3];
+
+    /// Claude Code and OpenCode connected, at `NOW`.
+    pub fn tools() -> Tools {
+        let mut tools = Tools::from_statuses(vec![
+            connected(CLAUDE),
+            status(Tool::ALL[1], AgentToolState::NotInstalled),
+            status(Tool::ALL[2], AgentToolState::NotInstalled),
+            connected(OPENCODE),
+        ]);
+        tools.now = NOW;
+        tools
+    }
+
+    pub fn working(agent: &str, minutes: i64) -> FlowSetupRow {
+        FlowSetupRow::Working {
+            agent: agent.into(),
+            since: NOW - minutes * 60_000 - 5_000,
+        }
+    }
+
+    /// shop-web's Flow setup with Claude Code's and OpenCode's rows.
+    pub fn setup(claude: FlowSetupRow, opencode: FlowSetupRow) -> FlowSetup {
+        FlowSetup {
+            project: "SHOP".into(),
+            project_name: "shop-web".into(),
+            since: Some(NOW - 10 * 60_000),
+            tools: vec![
+                FlowSetupTool {
+                    tool: CLAUDE,
+                    row: claude,
+                },
+                FlowSetupTool {
+                    tool: OPENCODE,
+                    row: opencode,
+                },
+            ],
+            proposals: Vec::new(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::project_agents::first_flow::FlowSetupRow;
 
+    use super::fixtures::{CC, NOW, OC, setup, working};
     use super::*;
-    use crate::view_models::flow_at_work::fixtures::{CC, NOW, OC, setup, working};
 
     fn project(key: &str, name: &str, flow_setup: bool) -> ProjectInfo {
         ProjectInfo {
@@ -137,7 +186,6 @@ mod tests {
         let bill = page(&projects, "BILL");
         assert!(bill.shows);
         assert_eq!(bill.project, "BILL");
-        assert_eq!(bill.back_to_tools, "agent_tools");
         assert!(
             !page(&projects, "SHOP").shows,
             "a settled project shows its board"

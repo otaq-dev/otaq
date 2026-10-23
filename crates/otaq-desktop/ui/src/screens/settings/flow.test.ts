@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // Settings → Flow (T-0422; FLW-06…FLW-11): the section draws Rust's table and waiting line; every action but Export
-// asks for a proposal and closes Settings (the preview opens on its event); Export and Import go through the system's
-// dialogs and a cancelled dialog does nothing; Change with the Project agent starts a Project agent with `/flow`; a
+// puts its flow in the draft, closes Settings and opens the flow editor on it (FED-09); Export and Import go through
+// the system's dialogs and a cancelled dialog does nothing; Change flow… opens the editor and starts nothing; a
 // preset card proposes its file. (The flow banner's Apply now and Cancel change: `notices/applyNow.test.ts`.)
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -49,7 +49,7 @@ const SECTION: FlowSettings = {
   title: "Flow",
   changed: "Changed by the Project agent · yesterday",
   intro:
-    "The project’s columns and who works in each. Change it by asking; every change opens a preview first.",
+    "The project’s columns and who works in each. Change it in the flow editor; nothing reaches the board until you apply.",
   waiting: {
     text: "A flow change is waiting: QA after Security. 8 tickets are still working, and no new ticket starts until they’re done.",
     cancel_label: "Cancel change",
@@ -68,8 +68,7 @@ const SECTION: FlowSettings = {
     { icon: "user-check", name: "Review", kind: "Check · you", agent: "You", model: null, options: "skip" },
   ],
   problem: null,
-  change: { label: "Change with the Project agent", icon: "bot", disabled: false, hint: null },
-  change_message: "/flow",
+  change: { label: "Change flow…", icon: "workflow", disabled: false, hint: null },
   preset: { label: "Use a preset…", icon: null, disabled: false, hint: null },
   copy: { label: "Copy from another project…", icon: null, disabled: false, hint: null },
   menu_label: "More flow actions",
@@ -88,24 +87,17 @@ const ask = vi.mocked(request);
 let box: HTMLElement;
 let root: Root;
 
-function routes(
-  over: Partial<FlowRoutes> = {},
-): FlowRoutes & { closed: () => number; previews: string[]; editors: string[] } {
+function routes(over: Partial<FlowRoutes> = {}): FlowRoutes & { closed: () => number; editors: string[] } {
   let closed = 0;
-  const previews: string[] = [];
   const editors: string[] = [];
   return {
     ask,
     closeSettings: () => {
       closed += 1;
     },
-    openPreview: (project) => {
-      previews.push(project);
-    },
     openEditor: (project) => {
       editors.push(project);
     },
-    previews,
     editors,
     pickFile: vi.fn(() => Promise.resolve(null)),
     saveFile: vi.fn(() => Promise.resolve(null)),
@@ -162,7 +154,7 @@ describe("the Flow section", () => {
       "Claude Code · sonnet",
       "Quick developer",
       "Check · you",
-      "Change with the Project agent",
+      "Change flow…",
       "Use a preset…",
       "Copy from another project…",
     ])
@@ -235,7 +227,7 @@ describe("the Flow section", () => {
 });
 
 describe("the Flow actions", () => {
-  it("a proposal closes Settings once the service took it; a refusal keeps it open", async () => {
+  it("an action's flow lands in the draft and the editor opens on it; a refusal keeps Settings open", async () => {
     const r = routes();
     await proposeFrom("SHOP", { from: "preset", file: "grill-first.yaml" }, r);
     expect(ask).toHaveBeenCalledWith("settings.flow_propose", {
@@ -243,7 +235,7 @@ describe("the Flow actions", () => {
       source: { from: "preset", file: "grill-first.yaml" },
     });
     expect(r.closed()).toBe(1);
-    expect(r.previews).toEqual(["SHOP"]);
+    expect(r.editors).toEqual(["SHOP"]);
     ask.mockRejectedValueOnce({ message: "SHOP has no previous flow" });
     await expect(menuChoice(SECTION, "back", r)).rejects.toBeTruthy();
     expect(ask).toHaveBeenLastCalledWith("settings.flow_propose", {
@@ -258,7 +250,7 @@ describe("the Flow actions", () => {
     });
   });
 
-  it("Import reads the picked file into a proposal; a cancelled dialog asks nothing", async () => {
+  it("Import reads the picked file into the draft; a cancelled dialog asks nothing", async () => {
     const r = routes();
     await importFlow(SECTION, r);
     expect(ask).not.toHaveBeenCalled();
@@ -267,7 +259,7 @@ describe("the Flow actions", () => {
     expect(picked.pickFile).toHaveBeenCalledWith("Import a flow");
     expect(ask).toHaveBeenCalledWith("settings.flow_import", { project: "SHOP", path: "/tmp/flow.yaml" });
     expect(picked.closed()).toBe(1);
-    expect(picked.previews).toEqual(["SHOP"]);
+    expect(picked.editors).toEqual(["SHOP"]);
   });
 
   it("Export saves where the dialog said and keeps Settings open", async () => {
@@ -279,11 +271,11 @@ describe("the Flow actions", () => {
       path: "/tmp/shop-web-flow.yaml",
     });
     expect(r.closed()).toBe(0);
-    expect(r.previews).toEqual([]);
+    expect(r.editors).toEqual([]);
     expect(await exportFlow(SECTION, routes())).toBe(false);
   });
 
-  it("Change with the Project agent opens the flow editor on the project and starts nothing", () => {
+  it("Change flow… opens the flow editor on the project and starts nothing", () => {
     const r = routes();
     changeFlow(SECTION, r);
     expect(r.closed()).toBe(1);

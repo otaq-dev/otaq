@@ -317,8 +317,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentToolDisconnectOutcome::export_all(&cfg)?;
     // The Tools step's gallery (T-0365).
     otaq_view::view_models::onboarding_page::ToolsGallery::export_all(&cfg)?;
-    // The flow preview (T-0420): its view, the picks and every request.
-    crate::api::export_flow_preview_types(&cfg)?;
     // The flow editor (T-0471): its view, the requests' params and answers, and its gallery.
     crate::api::export_flow_editor_types(&cfg)?;
     // The Apply now window (T-0439, APN-02): its view, the requests' params and the answer.
@@ -330,10 +328,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // The sheet's Overview (T-0465, SHT-03, RPT-02): its view, the description's state, a file's chip.
     crate::api::export_overview_types(&cfg)?;
     crate::api::export_report_types(&cfg)?;
-    // The Flow step (T-0429, T-0434): the go-ahead, the presets and its gallery.
-    crate::api::export_flow_step_types(&cfg)?;
-    // The agents at work (T-0434): the tabs and the card, Ask's params and answer, and the gallery.
-    crate::api::export_flow_at_work_types(&cfg)?;
+    // The project menu (T-0473, FED-09): its view and its gallery.
+    otaq_view::view_models::project_menu::ProjectMenu::export_all(&cfg)?;
+    otaq_view::view_models::project_menu::Gallery::export_all(&cfg)?;
     // The Flow setup page (T-0436): whether it shows instead of the board.
     crate::api::export_flow_setup_page_types(&cfg)?;
     Ok(())

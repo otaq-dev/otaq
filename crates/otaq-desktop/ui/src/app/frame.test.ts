@@ -65,7 +65,6 @@ describe("the frame", () => {
       "banners",
       "board",
       "ask_bar",
-      "main_overlays",
       "overlays",
       "toasts",
     ]);
@@ -79,7 +78,6 @@ describe("the frame", () => {
       "pane",
       "board",
       "ask_bar",
-      "main_overlays",
       "overlays",
       "toasts",
     ]);
@@ -101,7 +99,6 @@ describe("the frame", () => {
       "board",
       "panel",
       "ask_bar",
-      "main_overlays",
       "overlays",
       "toasts",
     ]);

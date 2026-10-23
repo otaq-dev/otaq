@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 
+import { useSelection } from "../../app/selection";
 import { type ChainState, EpicCard, RESTING, TicketCard } from "../../cards";
 import { AnchoredMenu, type Anchor, Tooltip } from "../../components";
 import type { BoardCard } from "../../generated/BoardCard";
@@ -42,6 +43,7 @@ import type { ChainView } from "../../generated/ChainView";
 import type { DragVerdict } from "../../generated/DragVerdict";
 import type { ViewChange } from "../../generated/ViewChange";
 import { Icon } from "../../theme/Icon";
+import { columnEditorOpen, openFlowEditor } from "../flow_editor/logic";
 import { chainStateOf, membersIn } from "./chain";
 import { type AboveChip, aboveChip } from "./drag";
 
@@ -420,8 +422,12 @@ export function DoneLink({
   );
 }
 
-/** The column's ⋯ (BRD-04), shown on hover: Fold this column (the flow's items come with the flow editor). */
+/**
+ * The column's ⋯ (BRD-04, FED-09; `s26-08`), shown on hover: Edit <stage>…, Add a stage after <stage>, Fold this
+ * column, Change the whole flow…. The flow's items open the flow editor over the board on the shown project.
+ */
 export function ColumnMenu({ column, onView }: Pick<ColumnProps, "column" | "onView">) {
+  const { project } = useSelection();
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   if (column.menu.length === 0) return null;
   return (
@@ -446,11 +452,12 @@ export function ColumnMenu({ column, onView }: Pick<ColumnProps, "column" | "onV
           anchor={anchor}
           label={column.menu_label}
           items={column.menu.map((m) => m.item)}
-          width={200}
+          width={270}
           onChoose={(id) => {
             setAnchor(null);
-            const change = column.menu.find((m) => m.item.id === id)?.change ?? null;
-            if (change !== null) onView(change);
+            const chosen = column.menu.find((m) => m.item.id === id);
+            if (chosen?.change) onView(chosen.change);
+            if (chosen?.editor && project !== null) openFlowEditor(columnEditorOpen(project, chosen.editor));
           }}
           onClose={() => {
             setAnchor(null);

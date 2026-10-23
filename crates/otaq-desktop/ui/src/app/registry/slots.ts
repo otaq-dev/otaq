@@ -32,11 +32,6 @@ export const SLOT_IDS = [
   "panel",
   /** The toasts, over everything (T-0231). */
   "toasts",
-  /**
-   * Always mounted in the main area's overlay layer, drawing nothing of its own: the flow preview opens itself there
-   * when a proposal arrives (T-0420, FLW-04).
-   */
-  "main_area",
 ] as const;
 
 export type SlotId = (typeof SLOT_IDS)[number];

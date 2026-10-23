@@ -1,7 +1,7 @@
 //! `settings.flow*`: a project's Flow section (T-0422; FLW-06…FLW-10, d0108). The section (`settings.flow`), Use a
 //! preset… (`settings.flow_presets`), Copy from another project…'s list (`settings.flow_copy`), and the actions: every
-//! one but Export asks the service for a proposal (`flow.propose_from`), which opens the preview on its `proposed`
-//! event; Export flow… writes the flow document (`flow.show`) where the save dialog said; Import flow… reads the file
+//! one but Export puts its flow in the project's draft (`flow.propose_from`), and the page opens the flow editor on it
+//! (FED-09); Export flow… writes the flow document (`flow.show`) where the save dialog said; Import flow… reads the file
 //! the open dialog picked; Cancel change drops the waiting change (`flow.cancel_waiting`, no question).
 
 use std::path::PathBuf;
@@ -191,7 +191,7 @@ async fn copy(app: &App, key: &str) -> Result<CopyMenu, RequestError> {
     Ok(vm::copy_menu(key, &projects(app).await?))
 }
 
-/// A proposal for `project` from `source`: the preview opens on its event. A refusal (a file that doesn't read, no
+/// The draft for `project` from `source`, which the flow editor then shows. A refusal (a file that doesn't read, no
 /// previous flow) is the request's error, shown on the page.
 async fn propose(app: &App, project: &str, source: ProposeFrom) -> Result<(), RequestError> {
     let request = Request::FlowProposeFrom(ProposeFromParams {
@@ -204,7 +204,7 @@ async fn propose(app: &App, project: &str, source: ProposeFrom) -> Result<(), Re
     }
 }
 
-/// Import flow…: the picked file's name and text (FLW-09). The preview marks what it lacks (FLW-04).
+/// Import flow…: the picked file's name and text (FLW-09). The editor marks what it lacks on its steps.
 pub(in crate::api) async fn import(path: &str) -> Result<ProposeFrom, RequestError> {
     let path = PathBuf::from(path);
     let name = path

@@ -71,9 +71,8 @@ import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
 import type { AgentToolsGallery } from "../../generated/AgentToolsGallery";
-import type { FlowAtWorkGallery } from "../../generated/FlowAtWorkGallery";
 import type { FlowEditorGallery } from "../../generated/FlowEditorGallery";
-import type { OnboardingFlowGallery } from "../../generated/OnboardingFlowGallery";
+import type { ProjectMenuGallery } from "../../generated/ProjectMenuGallery";
 import type { OnboardingToolsGallery } from "../../generated/OnboardingToolsGallery";
 import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
 import type { GalleryView } from "../../generated/GalleryView";
@@ -147,10 +146,7 @@ import { RailAgentButton } from "../shell/Rail";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { LeadTabBody } from "../lead_tab/LeadTab";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
-import { AgentsAtWork } from "../onboarding/FlowAtWork";
 import { FlowEditorBody, recordingActions } from "../flow_editor/FlowEditor";
-import { FlowGoAhead, FlowPresets } from "../onboarding/FlowStep";
-import { FlowDialogButtons, FlowDialogGoAhead, FlowDialogPresets } from "../onboarding/AddProjectDialog";
 import { ToolsList } from "../onboarding/Tools";
 import "../onboarding/onboarding.css";
 import "./gallery.css";
@@ -1591,11 +1587,8 @@ function CleanupWarmGallery() {
 const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
 const loadAgentTools = () => request("gallery.agent_tools") as Promise<AgentToolsGallery>;
 const loadOnboardingTools = () => request("gallery.onboarding_tools") as Promise<OnboardingToolsGallery>;
-const loadOnboardingFlow = () => request("gallery.onboarding_flow") as Promise<OnboardingFlowGallery>;
-const loadFlowAtWork = () => request("gallery.onboarding_flow_at_work") as Promise<FlowAtWorkGallery>;
 const loadFlowEditor = () => request("gallery.flow_editor") as Promise<FlowEditorGallery>;
-const loadOnboardingFlowDialog = () =>
-  request("gallery.onboarding_flow_dialog") as Promise<OnboardingFlowGallery>;
+const loadProjectMenu = () => request("gallery.project_menu") as Promise<ProjectMenuGallery>;
 
 const THEMES = ["otaq-light", "otaq-dark"] as const;
 
@@ -1717,123 +1710,6 @@ function OnboardingToolsGallerySection() {
   );
 }
 
-/** *14 → Row · Flow step: sources* `s14-12`/`s14-13` (T-0434, ASK-05): the Flow step's go-ahead with one tool and with
- * two, and no agent tool connected with the four presets, from `gallery.onboarding_flow` in Otaq Light and Dark. Calls
- * are only recorded. */
-function OnboardingFlowGallerySection() {
-  const { view, error } = useServiceView(loadOnboardingFlow, []);
-  const [picked, setPicked] = useState<string | null>(null);
-  if (error) return <p role="alert">{error.message}</p>;
-  if (!view) return null;
-  const record = (what: string) => () => {
-    setPicked(what);
-  };
-  return (
-    <Section title="14 · Flow step: ask an agent, and no agent tool connected (T-0434)">
-      <Caption>Last call: {picked ?? "—"}</Caption>
-      {THEMES.map((theme) => (
-        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
-          <Caption>{theme.toUpperCase()}</Caption>
-          {view.cells.map((cell) => {
-            const props = {
-              step: cell.step,
-              busy: false,
-              onSkip: record("Skip, use the default"),
-            };
-            return (
-              <div key={cell.name} className="gallery-stack-tight">
-                <Caption>{cell.name.toUpperCase()}</Caption>
-                {cell.step.opens === "no_tool" ? (
-                  <FlowPresets
-                    {...props}
-                    onAgents={record("Ask an agent")}
-                    onBackToTools={record("Back to Tools")}
-                    onPick={(file) => {
-                      setPicked(file);
-                    }}
-                  />
-                ) : (
-                  <FlowGoAhead
-                    {...props}
-                    onPresets={record("Use a preset instead")}
-                    onAsk={(tool) => {
-                      setPicked(`Ask ${tool}`);
-                    }}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ))}
-    </Section>
-  );
-}
-
-/** *14 → Row · Another project, and the presets* `s14-18`/`s14-19` (T-0431, ONB-08): the Add project dialog's go-ahead
- * for billing-api with one tool and with none connected, drawn as the dialog box without its backdrop, from
- * `gallery.onboarding_flow_dialog` in Otaq Light and Dark. Calls are only recorded. */
-function OnboardingFlowDialogGallerySection() {
-  const { view, error } = useServiceView(loadOnboardingFlowDialog, []);
-  const [picked, setPicked] = useState<string | null>(null);
-  if (error) return <p role="alert">{error.message}</p>;
-  if (!view) return null;
-  const record = (what: string) => () => {
-    setPicked(what);
-  };
-  return (
-    <Section title="14 · Add project: the go-ahead in the dialog, no agent tool connected (T-0431)">
-      <Caption>Last call: {picked ?? "—"}</Caption>
-      {THEMES.map((theme) => (
-        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
-          <Caption>{theme.toUpperCase()}</Caption>
-          {view.cells.map((cell) => (
-            <div key={cell.name} className="gallery-stack-tight">
-              <Caption>{cell.name.toUpperCase()}</Caption>
-              <div className="dialog" style={{ width: 640 }}>
-                <div className="dialog-content">
-                  <h2 className="dialog-title">{cell.step.title}</h2>
-                  <div className="dialog-body add-project-flow">
-                    {cell.step.opens === "no_tool" ? (
-                      <FlowDialogPresets
-                        step={cell.step}
-                        busy={false}
-                        onPick={(file) => {
-                          setPicked(file);
-                        }}
-                      />
-                    ) : (
-                      <FlowDialogGoAhead
-                        step={cell.step}
-                        busy={false}
-                        onAsk={(tool) => {
-                          setPicked(`Ask ${tool}`);
-                        }}
-                      />
-                    )}
-                  </div>
-                </div>
-                <div className="dialog-footer">
-                  <span className="dialog-hint">
-                    <Kbd keys="esc" />
-                    <span>close</span>
-                  </span>
-                  <FlowDialogButtons
-                    step={cell.step}
-                    busy={false}
-                    onSkip={record("Skip, use the default")}
-                    onPresets={record("Use a preset instead")}
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
-    </Section>
-  );
-}
-
 /** *27 → The flow editor* `s27-03`/`s27-05` (T-0471, FED-01…FED-07): the editor in the project (shop-web's flow) and in
  * onboarding (Otaq default, two tools), from `gallery.flow_editor`, in Otaq Light and Dark at the frames' 1376 × 808.
  * Clicks are only recorded. */
@@ -1863,39 +1739,28 @@ function FlowEditorGallerySection() {
   );
 }
 
-/** *14 → Row · Flow step: the agent at work* `s14-14`/`s14-15` (T-0434, ASK-06): the Agents at work card in its five
- * frames (two at work, one not asked, the plan limit, not signed in, ended without a proposal), from
- * `gallery.onboarding_flow_at_work` in Otaq Light and Dark. The tabs need live terminals and aren't drawn here. Calls
- * are only recorded. */
-function FlowAtWorkGallerySection() {
-  const { view, error } = useServiceView(loadFlowAtWork, []);
+/** *26 → Row · Changing the flow later* `s26-08`/`s26-12` (T-0473, FED-09): the project menu with the flow in use and
+ * with a change waiting, from `gallery.project_menu`, in Otaq Light and Dark. Choices are only recorded. */
+function ProjectMenuGallerySection() {
+  const { view, error } = useServiceView(loadProjectMenu, []);
   const [picked, setPicked] = useState<string | null>(null);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
-  const record = (what: string) => () => {
-    setPicked(what);
-  };
   return (
-    <Section title="14 · Flow step: agents at work (T-0434)">
+    <Section title="26 · The project menu (T-0473)">
       <Caption>Last call: {picked ?? "—"}</Caption>
       {THEMES.map((theme) => (
-        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
-          <Caption>{theme.toUpperCase()}</Caption>
-          {view.cells.map((cell) => (
-            <div key={cell.name} className="gallery-stack-tight">
-              <Caption>{cell.name.toUpperCase()}</Caption>
-              <AgentsAtWork
-                view={cell.view}
-                watched={cell.watching}
-                busy={false}
-                onWatch={(agent) => {
-                  setPicked(`Watch ${agent}`);
-                }}
-                onAct={(button) => {
-                  setPicked(button.label);
-                }}
-                onStopAll={record("Stop all and use a preset")}
-                onSkip={record("Skip, use the default")}
+        <div key={theme} data-theme={theme} className="gallery-wrap" style={themed}>
+          {view.cells.map(([name, menu]) => (
+            <div key={name} className="gallery-stack-tight">
+              <Caption>{`${theme} · ${name}`.toUpperCase()}</Caption>
+              <Menu
+                label={menu.title}
+                head={{ title: menu.title, detail: menu.path }}
+                items={menu.items}
+                width={300}
+                onChoose={setPicked}
+                onClose={() => undefined}
               />
             </div>
           ))}
@@ -2745,10 +2610,8 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <ShortcutsGallerySection />
         <AgentToolsGallerySection />
         <OnboardingToolsGallerySection />
-        <OnboardingFlowGallerySection />
-        <OnboardingFlowDialogGallerySection />
-        <FlowAtWorkGallerySection />
         <FlowEditorGallerySection />
+        <ProjectMenuGallerySection />
         <BoardReviewSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">
           <ThemeSection />

@@ -6,7 +6,7 @@
 // reorder; + between them on hover; Add a stage), the selected step's details or the legend, the change line and Cancel
 // · Apply. **The Project agent** (right, 360 px): "Not started" with Otaq's hint and fixed chips until the user types
 // or clicks one, then its terminal. Everything it says is `flow_editor.view`'s; the body is its own component so
-// onboarding's Flow step (T-0473) and the gallery draw the same.
+// onboarding's Flow step and the Flow setup page (`FlowEditorPage`, FED-09) and the gallery draw the same.
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { keymap } from "../../app/keyboard";
@@ -33,6 +33,7 @@ import type { FlowEditorChipAction } from "../../generated/FlowEditorChipAction"
 import type { FlowEditorDetails } from "../../generated/FlowEditorDetails";
 import type { FlowEditorEntry } from "../../generated/FlowEditorEntry";
 import type { FlowEditorFlow } from "../../generated/FlowEditorFlow";
+import type { FlowEditorFrom } from "../../generated/FlowEditorFrom";
 import type { FlowEditorMark } from "../../generated/FlowEditorMark";
 import type { FlowEditorParams } from "../../generated/FlowEditorParams";
 import type { FlowEditorPick } from "../../generated/FlowEditorPick";
@@ -46,14 +47,15 @@ import { useServiceView } from "../../service";
 import { pickFlowFile, request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
-import { previewHeld } from "../flow_preview/logic";
 import {
+  addOnOpening,
   applyDraft,
   askEach,
   askTool,
   cancelDraft,
   chipPressed,
   dropIndex,
+  editorAgent,
   editorAgents,
   editStage,
   FLOW_EDITOR_EVENTS,
@@ -359,6 +361,7 @@ function StepItem({
     className: "fe-step",
     "data-selected": step.selected || undefined,
     "data-marked": step.mark !== null || undefined,
+    "data-added": step.added || undefined,
     "data-problem": step.problem !== null || undefined,
     "data-dragging": dragging || undefined,
     "data-drop-before": dropBefore || undefined,
@@ -897,41 +900,41 @@ export function FlowEditorBody({
   );
 }
 
-/**
- * The `flow_editor` overlay over the whole window: the project's draft with the page's selection and the panel's
- * agent. Esc closes the details first, then the editor (the draft stays for next time; Cancel drops it).
- */
-export function FlowEditorOverlay({ params, close }: OverlayProps<"flow_editor">) {
-  return <Editor key={`${params.project}-${params.from}`} params={params} close={close} />;
+/** Where the editor opens and what ends it: the overlay closes; onboarding's Flow step and the Flow setup page move on. */
+interface EditorOpen {
+  project: string;
+  from: FlowEditorFrom;
+  select_stage?: string;
+  /** A stage to add a new one after on opening; `null`: first, after Ready for Dev. */
+  add_after?: string | null;
+  /** Apply (Use this flow) or Cancel (Skip, use the default) was answered: the agent the panel showed, if any. */
+  onDone: (agent: string | null) => void;
+  /** Esc with no step selected: the overlay closes; embedded, nothing. */
+  onEscape?: () => void;
 }
 
-function Editor({ params, close }: OverlayProps<"flow_editor">) {
-  const { project, from } = params;
-  const [selected, setSelected] = useState<string | null>(params.select_stage ?? null);
+/**
+ * The editor's state for one project: its view (`flow_editor.view` with the page's selection and the panel's agent),
+ * the clicks, ⌘L into the panel and Esc (the details first). The overlay and the embedded page draw it the same way.
+ */
+function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null>) {
+  const { project, from, onDone, onEscape } = open;
+  const [selected, setSelected] = useState<string | null>(open.select_stage ?? null);
   const [busy, setBusy] = useState(false);
   const agents = useStore(editorAgents);
   const agent = agents[project] ?? null;
-  const titleId = useId();
-  const dialog = useRef<HTMLElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const terminal = useRef<TerminalHandle>(null);
   // A stage to add on opening (a column's Add a stage after <stage>): once, whatever React re-runs.
   const added = useRef(false);
+  const addAfter = open.add_after;
   useEffect(() => {
-    if (params.add_after === undefined || added.current) return;
+    if (addAfter === undefined || added.current) return;
     added.current = true;
-    editStage(project, { edit: "add", after: params.add_after }).then((id) => {
+    editStage(project, addOnOpening(addAfter)).then((id) => {
       if (id !== null) setSelected(id);
     }, ignore);
-  }, [project, params.add_after]);
-  // The old preview doesn't open over the editor for this project's proposals (T-0473 removes it).
-  useEffect(() => {
-    const before = previewHeld.get();
-    previewHeld.set(project);
-    return () => {
-      previewHeld.set(before);
-    };
-  }, [project]);
+  }, [project, addAfter]);
   const load = useCallback(() => {
     const p: FlowEditorParams = {
       project,
@@ -943,9 +946,6 @@ function Editor({ params, close }: OverlayProps<"flow_editor">) {
   }, [project, from, selected, agent]);
   const state = useServiceView(load, FLOW_EDITOR_EVENTS);
   const view = state.view;
-  useEffect(() => {
-    dialog.current?.focus();
-  }, []);
 
   const finish = useCallback(
     (sent: Promise<unknown>) => {
@@ -953,14 +953,14 @@ function Editor({ params, close }: OverlayProps<"flow_editor">) {
       sent.then(
         () => {
           setBusy(false);
-          close();
+          onDone(editorAgent(project));
         },
         () => {
           setBusy(false);
         },
       );
     },
-    [close],
+    [onDone, project],
   );
   const actions = useMemo<EditorActions | null>(() => {
     if (view === undefined) return null;
@@ -1005,8 +1005,8 @@ function Editor({ params, close }: OverlayProps<"flow_editor">) {
 
   // ⌘L (the user's Focus the Project agent key) moves into the panel; Esc closes the details, then the editor.
   useEffect(() => {
-    const box = dialog.current;
-    if (!box) return;
+    const el = box.current;
+    if (!el) return;
     const onKey = (e: globalThis.KeyboardEvent) => {
       const map = keymap.get();
       if (map !== undefined && bindingFor(map, e, false)?.action.action === "focus_pane") {
@@ -1016,16 +1016,37 @@ function Editor({ params, close }: OverlayProps<"flow_editor">) {
         return;
       }
       if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (selected === null && onEscape === undefined) return;
       e.preventDefault();
       e.stopPropagation();
       if (selected !== null) setSelected(null);
-      else close();
+      else onEscape?.();
     };
-    box.addEventListener("keydown", onKey);
+    el.addEventListener("keydown", onKey);
     return () => {
-      box.removeEventListener("keydown", onKey);
+      el.removeEventListener("keydown", onKey);
     };
-  }, [selected, close]);
+  }, [box, selected, onEscape]);
+
+  return { state, view, actions, busy, input, terminal };
+}
+
+/**
+ * The `flow_editor` overlay over the whole window: the project's draft with the page's selection and the panel's
+ * agent. Esc closes the details first, then the editor (the draft stays for next time; Cancel drops it).
+ */
+export function FlowEditorOverlay({ params, close }: OverlayProps<"flow_editor">) {
+  return <Editor key={`${params.project}-${params.from}`} params={params} close={close} />;
+}
+
+function Editor({ params, close }: OverlayProps<"flow_editor">) {
+  const titleId = useId();
+  const dialog = useRef<HTMLElement>(null);
+  const editor = useFlowEditor({ ...params, onDone: close, onEscape: close }, dialog);
+  const { state, view, actions } = editor;
+  useEffect(() => {
+    dialog.current?.focus();
+  }, []);
 
   return (
     <div className="fe-scrim" role="presentation">
@@ -1045,15 +1066,51 @@ function Editor({ params, close }: OverlayProps<"flow_editor">) {
         {view !== undefined && actions !== null && (
           <FlowEditorBody
             view={view}
-            busy={busy}
+            busy={editor.busy}
             actions={actions}
-            input={input}
-            terminal={terminal}
+            input={editor.input}
+            terminal={editor.terminal}
             titleId={titleId}
           />
         )}
       </section>
     </div>
+  );
+}
+
+export interface FlowEditorPageProps {
+  project: string;
+  /** Use this flow or Skip, use the default was answered: the agent the panel showed, if any. */
+  onDone: (agent: string | null) => void;
+}
+
+/**
+ * The editor as onboarding's Flow step and a later project's Flow setup page (FED-09, `s27-03`): in place, from Otaq
+ * default, with Use this flow · Skip, use the default. The project stays in Flow setup until one is pressed.
+ */
+export function FlowEditorPage({ project, onDone }: FlowEditorPageProps) {
+  const titleId = useId();
+  const page = useRef<HTMLElement>(null);
+  const editor = useFlowEditor({ project, from: "onboarding", onDone }, page);
+  const { state, view, actions } = editor;
+  return (
+    <section ref={page} className="fe-page" aria-labelledby={titleId}>
+      {state.error !== undefined && view === undefined && (
+        <p className="fe-problem" role="alert">
+          {state.error.message}
+        </p>
+      )}
+      {view !== undefined && actions !== null && (
+        <FlowEditorBody
+          view={view}
+          busy={editor.busy}
+          actions={actions}
+          input={editor.input}
+          terminal={editor.terminal}
+          titleId={titleId}
+        />
+      )}
+    </section>
   );
 }
 

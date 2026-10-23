@@ -25,9 +25,9 @@ ends: string, rows: Array<FlowSettingsStage>,
  */
 problem: string | null, 
 /**
- * Change with the Project agent: starts a Project agent in this project with `change_message`.
+ * Change flow…: opens the flow editor on the project's flow.
  */
-change: FlowSettingsButton, change_message: string, preset: FlowSettingsButton, copy: FlowSettingsButton, 
+change: FlowSettingsButton, preset: FlowSettingsButton, copy: FlowSettingsButton, 
 /**
  * The ⋯ button's name, and its menu: Import flow… · Export flow… · Back to the previous flow · Reset to the
  * default flow.

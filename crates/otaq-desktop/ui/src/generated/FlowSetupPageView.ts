@@ -11,8 +11,4 @@ project: string,
 /**
  * The project is in Flow setup: the page shows, not the board.
  */
-shows: boolean, 
-/**
- * The Settings section Back to Tools opens ("agent_tools").
- */
-back_to_tools: string, };
+shows: boolean, };

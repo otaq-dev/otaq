@@ -74,16 +74,9 @@ describe("the fixed ids", () => {
   });
 
   it("overlays: every id has its modality; popovers and drawers don't hold shortcuts back", () => {
-    expect(OVERLAY_IDS).toHaveLength(37);
+    expect(OVERLAY_IDS).toHaveLength(36);
     const nonModal = OVERLAY_IDS.filter((id) => !OVERLAY_MODAL[id]);
-    expect(nonModal).toEqual([
-      "quick_switcher",
-      "command_palette",
-      "processes",
-      "terminals",
-      "activity",
-      "flow_preview",
-    ]);
+    expect(nonModal).toEqual(["quick_switcher", "command_palette", "processes", "terminals", "activity"]);
   });
 
   // No `default`: an id added to a union without a case here fails ESLint's switch-exhaustiveness-check.
@@ -145,8 +138,6 @@ describe("the fixed ids", () => {
         case "full_view":
         case "flow_editor":
           return "page";
-        case "flow_preview":
-          return "sheet";
       }
     };
     const contents: SheetContent[] = [

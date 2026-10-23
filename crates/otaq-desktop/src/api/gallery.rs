@@ -6,7 +6,7 @@ use std::ffi::OsStr;
 
 use otaq_core::naming;
 use otaq_view::view_models::{
-    activity, agent_pane, agent_tools_page, ask_bar, flow_at_work, board_page, card_page, cleanup, decision_change, decision_item, gallery, lead_status, lead_tab, needs_you_strip,
+    activity, agent_pane, agent_tools_page, ask_bar, board_page, card_page, cleanup, decision_change, decision_item, gallery, lead_status, lead_tab, needs_you_strip,
     limit_banner, onboarding_page, settings_page, stage_choices, tool_avatar,
 };
 use serde_json::Value;
@@ -67,14 +67,10 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.agent_tools" => reply(&agent_tools_page::gallery()),
         // 14 · The Tools step with agent tools: the sample, none connected, one connected, hidden and warned (T-0365).
         "gallery.onboarding_tools" => reply(&onboarding_page::tools_gallery()),
-        // 14 · The Flow step: ask an agent (one tool, two tools) and no agent tool connected (T-0434).
-        "gallery.onboarding_flow" => reply(&onboarding_page::flow_gallery()),
-        // 14 · The Add project dialog's go-ahead, and no agent tool connected (T-0431).
-        "gallery.onboarding_flow_dialog" => reply(&onboarding_page::flow_dialog_gallery()),
-        // 14 · Agents at work: two at work, one not asked, the plan limit, not signed in, ended (T-0434).
-        "gallery.onboarding_flow_at_work" => reply(&flow_at_work::gallery()),
         // 27 · The flow editor: shop-web's flow in the project, Otaq default in onboarding with two tools (T-0471).
         "gallery.flow_editor" => reply(&otaq_view::view_models::flow_editor::gallery()),
+        // 26 · The project menu: the flow in use, and a change waiting (T-0473).
+        "gallery.project_menu" => reply(&otaq_view::view_models::project_menu::gallery()),
         // 11 · The usage-limit banner's line per tool, Move waiting to…, a tool that isn't available (T-0364).
         "gallery.limit_lines" => reply(&limit_banner::gallery()),
         // The notification banners and Settings → Notifications in every state (T-0372).
@@ -182,10 +178,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(lines["cells"][0]["lines"][0]["title"], "Claude Code limit reached");
-        let dialog = crate::api::request(&h.app, "gallery.onboarding_flow_dialog", Value::Null)
-            .await
-            .unwrap();
-        assert_eq!(dialog["cells"][0]["step"]["title"], "billing-api\u{2019}s flow");
         h.service.stop_all().await;
     }
 }

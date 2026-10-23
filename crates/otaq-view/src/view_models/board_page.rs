@@ -241,8 +241,8 @@ pub struct ColumnRail {
     pub unfold: Change,
 }
 
-/// An item of a column's ⋯ menu (BRD-04): Fold this column; the flow's items (Edit <stage>…, Add a stage after
-/// <stage>, Change the whole flow…) come with the flow editor. `BoardColumnMenuItem` on the page.
+/// An item of a column's ⋯ menu (BRD-04, FED-09; `s26-08`): Edit <stage>…, Add a stage after <stage>, Fold this
+/// column, Change the whole flow…. `BoardColumnMenuItem` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "BoardColumnMenuItem")]
 pub struct ColumnMenuItem {
@@ -250,9 +250,31 @@ pub struct ColumnMenuItem {
     pub item: crate::view_models::menu::MenuItem,
     /// The view change it makes; `null` for an item with its own request.
     pub change: Option<Change>,
+    /// How the flow editor opens for it (the flow's items); `null` for the others.
+    pub editor: Option<OpenEditor>,
+}
+
+/// How a column's flow item opens the flow editor over the board (FED-09, d0115), from the flow in use.
+/// `BoardColumnEditor` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "open", rename_all = "snake_case")]
+#[ts(rename = "BoardColumnEditor")]
+pub enum OpenEditor {
+    /// Edit <stage>…: that stage selected, its details open.
+    Stage { stage: String },
+    /// Add a stage after <stage>: a new stage right after `after` (`None`: first, after Ready for Dev), selected
+    /// with its details open.
+    AddAfter { after: Option<String> },
+    /// Change the whole flow…: the editor as it opens from the project menu.
+    Flow,
 }
 
 pub const FOLD_THIS_COLUMN: &str = "Fold this column";
+/// Edit <stage>…'s second line.
+pub const EDIT_STAGE_HINT: &str = "agent, skill, options";
+pub const CHANGE_THE_WHOLE_FLOW: &str = "Change the whole flow\u{2026}";
+/// Change the whole flow…'s second line.
+pub const CHANGE_THE_WHOLE_FLOW_HINT: &str = "the same screen as onboarding";
 pub const CLICK_TO_UNFOLD: &str = "Click to unfold";
 pub const COLUMN_MENU: &str = "Column menu";
 
@@ -581,7 +603,7 @@ pub(crate) fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
             folded: false,
         },
     });
-    let menu = column_menu(&view.id, kind);
+    let menu = column_menu(&view.id, kind, &view.title);
     ColumnPage {
         id: view.id,
         kind,
@@ -637,22 +659,66 @@ pub fn rail_tooltip(title: &str, tickets: usize, needs_you: usize) -> String {
     }
 }
 
-/// A column's ⋯ menu (BRD-04): Fold this column, on every column but Backlog. Edit <stage>…, Add a stage after
-/// <stage> and Change the whole flow… join it with the flow editor (T-0473).
-pub fn column_menu(id: &ColumnId, kind: ColumnKind) -> Vec<ColumnMenuItem> {
+/// A column's ⋯ menu (BRD-04, FED-09; `s26-08`), on every column but Backlog: **Edit <stage>…** (a stage's own
+/// column), **Add a stage after <stage>** (not after the Delivery, which nothing follows), **Fold this column**, then
+/// **Change the whole flow…**. `title` is the column's ("Done · PR" names its stage "Done").
+pub fn column_menu(id: &ColumnId, kind: ColumnKind, title: &str) -> Vec<ColumnMenuItem> {
+    use crate::view_models::menu::MenuItem;
     if kind == ColumnKind::Backlog {
         return Vec::new();
     }
-    vec![ColumnMenuItem {
-        item: crate::view_models::menu::MenuItem {
-            icon: Some(IconName::FoldHorizontal),
-            ..crate::view_models::menu::MenuItem::new("fold", FOLD_THIS_COLUMN)
-        },
+    let stage = match kind {
+        ColumnKind::Delivery => title.split(" \u{b7} ").next().unwrap_or(title),
+        _ => title,
+    };
+    let opens = |item: MenuItem, editor: OpenEditor| ColumnMenuItem {
+        item,
+        change: None,
+        editor: Some(editor),
+    };
+    let mut menu = Vec::new();
+    if matches!(
+        kind,
+        ColumnKind::Agent | ColumnKind::HumanCheck | ColumnKind::Delivery
+    ) {
+        menu.push(opens(
+            MenuItem::new("edit_stage", format!("Edit {stage}\u{2026}"))
+                .icon(IconName::Pencil)
+                .hint(EDIT_STAGE_HINT),
+            OpenEditor::Stage {
+                stage: id.as_str().to_owned(),
+            },
+        ));
+    }
+    if matches!(
+        kind,
+        ColumnKind::ReadyForDev | ColumnKind::Agent | ColumnKind::HumanCheck
+    ) {
+        menu.push(opens(
+            MenuItem::new("add_stage", format!("Add a stage after {stage}")).icon(IconName::Plus),
+            OpenEditor::AddAfter {
+                after: (kind != ColumnKind::ReadyForDev).then(|| id.as_str().to_owned()),
+            },
+        ));
+    }
+    menu.push(ColumnMenuItem {
+        item: MenuItem::new("fold", FOLD_THIS_COLUMN).icon(IconName::FoldHorizontal),
         change: Some(Change::FoldColumn {
             column: id.as_str().to_owned(),
             folded: true,
         }),
-    }]
+        editor: None,
+    });
+    menu.push(opens(
+        MenuItem {
+            separated: true,
+            ..MenuItem::new("change_flow", CHANGE_THE_WHOLE_FLOW)
+                .icon(IconName::Workflow)
+                .hint(CHANGE_THE_WHOLE_FLOW_HINT)
+        },
+        OpenEditor::Flow,
+    ));
+    menu
 }
 
 /// Puts each epic card's lead on it (d0083): the Lead row, Open lead, and "added by Wishlist lead" rows.
@@ -2040,7 +2106,13 @@ mod tests {
         assert_eq!(ready.unfold, "Unfold Ready for Review");
         let done = &page.columns[5];
         assert!(!done.collapsed, "Done opened");
-        assert_eq!(done.menu[0].item.label, "Fold this column");
+        let labels = |c: &ColumnPage| -> Vec<String> {
+            c.menu.iter().map(|m| m.item.label.clone()).collect()
+        };
+        assert_eq!(
+            labels(done),
+            ["Fold this column", "Change the whole flow\u{2026}"]
+        );
         assert_eq!(page.done, None);
         let json = serde_json::to_value(&page).unwrap();
         assert_eq!(json["columns"][1]["id"], "ready_for_dev");
@@ -2154,6 +2226,82 @@ mod tests {
         assert!(rail.tooltip.ends_with("needs you"), "{}", rail.tooltip);
         assert_eq!(rail.hint, "Click to unfold");
         assert!(dev_folded.columns[0].menu.is_empty(), "Backlog has no ⋯");
+    }
+
+    /// BRD-04, FED-09 (`s26-08`): a stage's ⋯ edits it, adds one after it, folds it, or changes the whole flow; each
+    /// flow item says how the editor opens. Ready for Dev adds first; the Delivery has nothing after it; Done only
+    /// folds and changes the flow.
+    #[test]
+    fn a_columns_menu_opens_the_flow_editor_on_its_stage() {
+        let grill = column_menu(&ColumnId::new("grill"), ColumnKind::Agent, "Grill");
+        let rows: Vec<(&str, &str, Option<&str>, bool)> = grill
+            .iter()
+            .map(|m| {
+                (
+                    m.item.id.as_str(),
+                    m.item.label.as_str(),
+                    m.item.hint.as_deref(),
+                    m.item.separated,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                (
+                    "edit_stage",
+                    "Edit Grill\u{2026}",
+                    Some("agent, skill, options"),
+                    false
+                ),
+                ("add_stage", "Add a stage after Grill", None, false),
+                ("fold", "Fold this column", None, false),
+                (
+                    "change_flow",
+                    "Change the whole flow\u{2026}",
+                    Some("the same screen as onboarding"),
+                    true
+                ),
+            ]
+        );
+        let editors: Vec<Option<OpenEditor>> = grill.iter().map(|m| m.editor.clone()).collect();
+        assert_eq!(
+            editors,
+            [
+                Some(OpenEditor::Stage {
+                    stage: "grill".into()
+                }),
+                Some(OpenEditor::AddAfter {
+                    after: Some("grill".into())
+                }),
+                None,
+                Some(OpenEditor::Flow),
+            ]
+        );
+        assert!(grill[2].change.is_some() && grill[0].change.is_none());
+        let json = serde_json::to_value(&grill[1].editor).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "open": "add_after", "after": "grill" })
+        );
+
+        let ready = column_menu(
+            &ColumnId::READY_FOR_DEV,
+            ColumnKind::ReadyForDev,
+            "Ready for Dev",
+        );
+        assert_eq!(ready[0].item.label, "Add a stage after Ready for Dev");
+        assert_eq!(ready[0].editor, Some(OpenEditor::AddAfter { after: None }));
+        assert_eq!(ready.len(), 3, "no Edit: Ready for Dev isn't a stage");
+
+        let pr = column_menu(&ColumnId::new("pr"), ColumnKind::Delivery, "Done \u{b7} PR");
+        let ids: Vec<&str> = pr.iter().map(|m| m.item.id.as_str()).collect();
+        assert_eq!(ids, ["edit_stage", "fold", "change_flow"]);
+        assert_eq!(pr[0].item.label, "Edit Done\u{2026}");
+
+        let done = column_menu(&ColumnId::DONE, ColumnKind::Done, "Done");
+        let ids: Vec<&str> = done.iter().map(|m| m.item.id.as_str()).collect();
+        assert_eq!(ids, ["fold", "change_flow"]);
     }
 
     #[test]

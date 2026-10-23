@@ -1,5 +1,6 @@
 // The header (SHL-02, SHL-03; d0087; *02 · App shell → Row · Title bars (0086 · V)*, *Row · Header states (0086 ·
-// V)*): three items. The shown project with its base branch (the folder on the name's hover, "Copy path" in its menu),
+// V)*): three items. The shown project with its base branch (the folder on the name's hover; a click opens the project
+// menu, FED-09 `s26-08`: Change flow…, Export flow…, Project settings…, Open in Finder, Open a terminal here),
 // the search entry, Activity (agents and processes across all projects, the amber usage warning; a click or ⇧⌘U opens
 // its popover) and the place for Pause after it (the `header_pause` slot, T-0457; SHB-01); Needs you is the board's
 // strip (d0114, T-0459). Everything it says comes from `shell.header`. A project in Flow setup (ASK-04, T-0436)
@@ -16,11 +17,11 @@ import { AnchoredMenu, Kbd, MetaChip, StatusPill, Tooltip } from "../../componen
 import type { ActivityButton } from "../../generated/ActivityButton";
 import type { HeaderProject } from "../../generated/HeaderProject";
 import type { HeaderView } from "../../generated/HeaderView";
-import type { MenuItem } from "../../generated/MenuItem";
 import type { ShellParams } from "../../generated/ShellParams";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { projectMenuChoice } from "./projectMenu";
 
 /** The service events that change what the header shows. */
 export const HEADER_EVENTS = [
@@ -33,6 +34,8 @@ export const HEADER_EVENTS = [
   "settings_changed",
   // A project's Flow setup: its agents at work and proposals.
   "flow_setup_changed",
+  // The project menu's flow in use and its waiting change.
+  "flow_changed",
 ] as const;
 
 /** Activity's reset times pass with the clock, not with an event: the header asks again this often. */
@@ -46,26 +49,10 @@ export const activityAnchor = createRef<HTMLButtonElement>();
 
 const ignore = () => undefined;
 
-/** The project's name and base branch; the name's hover is the folder, its menu "Copy path". */
+/** The project's name and base branch; the name's hover is the folder, a click the project menu (FED-09). */
 function ProjectItem({ project }: { project: HeaderProject }) {
   const trigger = useRef<HTMLButtonElement>(null);
-  const [menu, setMenu] = useState<MenuItem[] | null>(null);
-  const open = () => {
-    setMenu([
-      {
-        id: "copy_path",
-        label: project.copy_path,
-        icon: "copy",
-        shortcut: null,
-        danger: false,
-        disabled: false,
-        hint: null,
-        separated: false,
-        checked: false,
-        header: false,
-      },
-    ]);
-  };
+  const [open, setOpen] = useState(false);
   return (
     <div className="header-project">
       <Tooltip text={project.path}>
@@ -74,8 +61,10 @@ function ProjectItem({ project }: { project: HeaderProject }) {
           type="button"
           className="header-project-name"
           aria-haspopup="menu"
-          aria-expanded={menu !== null}
-          onClick={open}
+          aria-expanded={open}
+          onClick={() => {
+            setOpen((o) => !o);
+          }}
         >
           {project.name}
         </button>
@@ -89,17 +78,18 @@ function ProjectItem({ project }: { project: HeaderProject }) {
           {project.flow_setup.status !== null && <StatusPill pill={project.flow_setup.status} />}
         </>
       )}
-      {menu && (
+      {open && (
         <AnchoredMenu
           anchor={trigger}
           label={project.name}
-          items={menu}
-          width={200}
-          onChoose={() => {
-            navigator.clipboard.writeText(project.repo_path).catch(ignore);
+          head={{ title: project.menu.title, detail: project.menu.path }}
+          items={project.menu.items}
+          width={300}
+          onChoose={(id) => {
+            projectMenuChoice(project, id).catch(ignore);
           }}
           onClose={(how) => {
-            setMenu(null);
+            setOpen(false);
             if (how === "key") trigger.current?.focus();
           }}
         />

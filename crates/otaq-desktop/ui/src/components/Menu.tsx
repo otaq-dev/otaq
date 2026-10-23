@@ -30,6 +30,8 @@ export interface MenuProps {
   style?: CSSProperties;
   /** A search field on top that filters the rows. */
   search?: MenuSearch;
+  /** A head above the rows, not chosen: the project menu's name and folder ("shop-web", "~/code/shop-web"). */
+  head?: { title: string; detail: string };
 }
 
 /** The menu panel itself, where its owner puts it. Most owners want `AnchoredMenu`. */
@@ -42,6 +44,7 @@ export function Menu({
   width = 260,
   style,
   search,
+  head,
 }: MenuProps) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -101,6 +104,15 @@ export function Menu({
         if (!e.currentTarget.contains(e.relatedTarget)) onClose("outside");
       }}
     >
+      {head && (
+        <div role="presentation">
+          <div className="menu-head">
+            <span className="menu-head-title">{head.title}</span>
+            <span className="menu-head-detail">{head.detail}</span>
+          </div>
+          <div role="separator" className="menu-separator" />
+        </div>
+      )}
       {search && (
         <div className="menu-search">
           <Icon name="search" size={13} />

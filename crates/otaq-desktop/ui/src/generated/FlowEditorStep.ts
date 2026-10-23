@@ -20,6 +20,11 @@ kind: string,
  */
 avatar: ToolAvatarView | null, who: string | null, mark: FlowEditorMark | null, 
 /**
+ * A stage the flow in use doesn't have, added in the editor (a column's Add a stage after <stage>, **+**, Add a
+ * stage): drawn dashed until it applies (FED-09, `s27-05`). A stage the agent added has its mark instead.
+ */
+added: boolean, 
+/**
  * Its problem from the check, in the error colour.
  */
 problem: string | null, selected: boolean, 

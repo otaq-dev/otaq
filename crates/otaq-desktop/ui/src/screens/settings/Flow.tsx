@@ -66,7 +66,7 @@ function Preset({ card, onPick }: { card: PresetCard; onPick: () => void }) {
   );
 }
 
-/** Use a preset… (*Row · Use a preset*): picking one opens the preview. */
+/** Use a preset… (*Row · Use a preset*): picking one opens the flow editor on it. */
 export function PresetDialog({
   dialog,
   onPick,

@@ -1,14 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createStore } from "../../app/store";
+import { overlays } from "../../app/overlays";
 import {
+  addOnOpening,
   askEach,
+  changeFlowOpen,
   chipPressed,
+  columnEditorOpen,
   dropIndex,
   editStage,
   importChoice,
   keyMove,
   nextTile,
+  openFlowEditor,
   sendFirst,
 } from "./logic";
 
@@ -109,5 +114,41 @@ describe("moving a step", () => {
     expect(nextTile(0, 5)).toBe(1);
     expect(nextTile(4, 5)).toBe(0);
     expect(nextTile(0, 0)).toBe(0);
+  });
+});
+
+describe("where the editor opens (FED-09, BRD-04)", () => {
+  it("a column's ⋯: Edit <stage>… selects it; Add a stage after <stage> adds one there; Change the whole flow…", () => {
+    expect(columnEditorOpen("SHOP", { open: "stage", stage: "grill" })).toEqual({
+      project: "SHOP",
+      from: "project",
+      select_stage: "grill",
+    });
+    expect(columnEditorOpen("SHOP", { open: "add_after", after: "grill" })).toEqual({
+      project: "SHOP",
+      from: "project",
+      add_after: "grill",
+    });
+    // Ready for Dev's: first, right after it.
+    expect(columnEditorOpen("SHOP", { open: "add_after", after: null })).toEqual({
+      project: "SHOP",
+      from: "project",
+      add_after: null,
+    });
+    expect(columnEditorOpen("SHOP", { open: "flow" })).toEqual(changeFlowOpen("SHOP"));
+    expect(changeFlowOpen("SHOP")).toEqual({ project: "SHOP", from: "project" });
+  });
+
+  it("the stage a column asked for is added on opening, after its stage or first", () => {
+    expect(addOnOpening("grill")).toEqual({ edit: "add", after: "grill" });
+    expect(addOnOpening(null)).toEqual({ edit: "add" });
+  });
+
+  it("opens over the window as the flow_editor overlay", () => {
+    openFlowEditor({ project: "SHOP", from: "project", select_stage: "dev" });
+    expect(overlays.store.get()).toEqual([
+      { id: "flow_editor", params: { project: "SHOP", from: "project", select_stage: "dev" } },
+    ]);
+    overlays.store.set([]);
   });
 });
