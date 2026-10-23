@@ -3,13 +3,21 @@ import type { ToolbarGroup } from "./ToolbarGroup";
 import type { ToolbarOption } from "./ToolbarOption";
 
 /**
- * The toolbar at the top of the board, in both views (*24 · The two views*). `BoardToolbar` on the page.
+ * The toolbar at the top of the board, in every view (*24 · The two views*, `s28-03`). `BoardToolbar` on the page.
  */
 export type BoardToolbar = { 
 /**
- * Board · List (BRD-01).
+ * Board · List · Files (BRD-01, FIL-01).
  */
 views: ToolbarGroup, 
+/**
+ * Files: "What the base branch looks like, and which agents are changing which files", after a divider.
+ */
+subtitle: string | null, 
+/**
+ * Files: "Live", with its dot on the right: the view follows the tickets' changes (FIL-10).
+ */
+live: string | null, 
 /**
  * The Board's Lanes None · Epic (EPL-01).
  */
@@ -23,14 +31,14 @@ group_by: ToolbarGroup | null,
  */
 dependencies: ToolbarGroup | null, 
 /**
- * Fold empty columns (Board) or Hide empty stages (List): a switch.
+ * Fold empty columns (Board) or Hide empty stages (List): a switch; none on Files.
  */
-switch: ToolbarOption, 
+switch: ToolbarOption | null, 
 /**
- * "All tickets": the board's filter (`/`).
+ * "All tickets": the board's filter (`/`); none on Files.
  */
-all_tickets: string, 
+all_tickets: string | null, 
 /**
- * "New ticket" (⌘N).
+ * "New ticket" (⌘N); none on Files.
  */
-new_ticket: string, new_ticket_keys: string | null, };
+new_ticket: string | null, new_ticket_keys: string | null, };

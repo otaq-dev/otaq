@@ -3309,8 +3309,10 @@
               }
             ]
           },
+          "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "subtitle": null,
           "switch": {
             "change": {
               "kind": "fold_empty_columns",
@@ -3347,6 +3349,17 @@
                 "label": "List",
                 "selected": false,
                 "tooltip": "List view"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "files"
+                },
+                "icon": "folder-open",
+                "keys": "⇧⌘O · g f",
+                "label": "Files",
+                "selected": false,
+                "tooltip": "Files"
               }
             ]
           }
@@ -4750,8 +4763,10 @@
               }
             ]
           },
+          "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "subtitle": null,
           "switch": {
             "change": {
               "kind": "fold_empty_columns",
@@ -4788,6 +4803,17 @@
                 "label": "List",
                 "selected": false,
                 "tooltip": "List view"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "files"
+                },
+                "icon": "folder-open",
+                "keys": "⇧⌘O · g f",
+                "label": "Files",
+                "selected": false,
+                "tooltip": "Files"
               }
             ]
           }
@@ -6191,8 +6217,10 @@
               }
             ]
           },
+          "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "subtitle": null,
           "switch": {
             "change": {
               "kind": "fold_empty_columns",
@@ -6229,6 +6257,17 @@
                 "label": "List",
                 "selected": false,
                 "tooltip": "List view"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "files"
+                },
+                "icon": "folder-open",
+                "keys": "⇧⌘O · g f",
+                "label": "Files",
+                "selected": false,
+                "tooltip": "Files"
               }
             ]
           }
@@ -6835,8 +6874,10 @@
               }
             ]
           },
+          "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "subtitle": null,
           "switch": {
             "change": {
               "kind": "fold_empty_columns",
@@ -6873,6 +6914,17 @@
                 "label": "List",
                 "selected": false,
                 "tooltip": "List view"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "files"
+                },
+                "icon": "folder-open",
+                "keys": "⇧⌘O · g f",
+                "label": "Files",
+                "selected": false,
+                "tooltip": "Files"
               }
             ]
           }
@@ -7408,8 +7460,10 @@
               }
             ]
           },
+          "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "subtitle": null,
           "switch": {
             "change": {
               "kind": "fold_empty_columns",
@@ -7446,6 +7500,17 @@
                 "label": "List",
                 "selected": false,
                 "tooltip": "List view"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "files"
+                },
+                "icon": "folder-open",
+                "keys": "⇧⌘O · g f",
+                "label": "Files",
+                "selected": false,
+                "tooltip": "Files"
               }
             ]
           }
@@ -7981,8 +8046,10 @@
               }
             ]
           },
+          "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "subtitle": null,
           "switch": {
             "change": {
               "kind": "fold_empty_columns",
@@ -8019,6 +8086,17 @@
                 "label": "List",
                 "selected": false,
                 "tooltip": "List view"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "files"
+                },
+                "icon": "folder-open",
+                "keys": "⇧⌘O · g f",
+                "label": "Files",
+                "selected": false,
+                "tooltip": "Files"
               }
             ]
           }
@@ -9379,8 +9457,10 @@
               }
             ]
           },
+          "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "subtitle": null,
           "switch": {
             "change": {
               "kind": "fold_empty_columns",
@@ -9417,6 +9497,17 @@
                 "label": "List",
                 "selected": false,
                 "tooltip": "List view"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "files"
+                },
+                "icon": "folder-open",
+                "keys": "⇧⌘O · g f",
+                "label": "Files",
+                "selected": false,
+                "tooltip": "Files"
               }
             ]
           }
@@ -10261,8 +10352,10 @@
               }
             ]
           },
+          "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "subtitle": null,
           "switch": {
             "change": {
               "kind": "fold_empty_columns",
@@ -10299,6 +10392,17 @@
                 "label": "List",
                 "selected": false,
                 "tooltip": "List view"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "files"
+                },
+                "icon": "folder-open",
+                "keys": "⇧⌘O · g f",
+                "label": "Files",
+                "selected": false,
+                "tooltip": "Files"
               }
             ]
           }
@@ -11143,8 +11247,10 @@
               }
             ]
           },
+          "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "subtitle": null,
           "switch": {
             "change": {
               "kind": "fold_empty_columns",
@@ -11181,6 +11287,17 @@
                 "label": "List",
                 "selected": false,
                 "tooltip": "List view"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "files"
+                },
+                "icon": "folder-open",
+                "keys": "⇧⌘O · g f",
+                "label": "Files",
+                "selected": false,
+                "tooltip": "Files"
               }
             ]
           }

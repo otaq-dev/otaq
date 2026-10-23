@@ -528,6 +528,9 @@ const BASE: [KeyAction, Slot[]][] = [
   [{ action: "start_dev" }, [["⌘D", "Ctrl+D", "Ctrl+Shift+D"]]],
   [{ action: "terminals" }, [["⌃`", "Ctrl+`", "Ctrl+`"], letter("g t")]],
   [{ action: "find_in_terminal" }, [["⌘F", "", "Ctrl+Shift+F"]]],
+  // FIL-11: Files, ⇧⌘O and g f (the sheet's Files tab first); Go to file.
+  [{ action: "show_files" }, [["⇧⌘O", "Ctrl+Shift+O", "Ctrl+Shift+O"], letter("g f")]],
+  [{ action: "go_to_file" }, [["⌥⌘P", "Ctrl+Alt+P", "Ctrl+Shift+Alt+P"]]],
 ];
 
 const NAMED: Record<string, string> = { "↵": "Enter", "⌫": "Backspace", Esc: "Escape", Tab: "Tab" };
@@ -706,6 +709,21 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
     const outcomes = ["g", "a"].map((t) => dispatchKey(noSheet.d, press(t), BOARD));
     expect(noSheet.ran).toEqual(["open_activity"]);
     expect(outcomes[1]).toEqual({ kind: "ran", action: { action: "open_activity" } });
+  });
+
+  it("g f is the open sheet's Files tab, else the Files view (FIL-11)", () => {
+    const sheetOpen = setup(MAC_0097, ALL);
+    for (const t of ["g", "f"]) dispatchKey(sheetOpen.d, press(t), BOARD);
+    expect(sheetOpen.ran).toEqual(["switch_tab 3"]);
+    const noSheet = setup(
+      MAC_0097,
+      ALL.filter((a) => a !== "switch_tab"),
+    );
+    for (const t of ["g", "f"]) dispatchKey(noSheet.d, press(t), BOARD);
+    expect(noSheet.ran).toEqual(["show_files"]);
+    const files = setup(MAC_0097, ["show_files"]);
+    dispatchKey(files.d, press("⇧⌘O"), BOARD);
+    expect(files.ran).toEqual(["show_files"]);
   });
 
   it("runs each one on Windows and Linux", () => {

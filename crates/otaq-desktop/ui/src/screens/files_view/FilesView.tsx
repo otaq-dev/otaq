@@ -1,0 +1,545 @@
+// The project Files view (FIL-01, FIL-03, FIL-04, FIL-07, FIL-10, FIL-11; T-0478; `s28-03`, `s28-04`, `s28-08`,
+// `s28-09`): the toolbar's third view. On the left the source bar ("main · every ticket’s changes"), which opens the
+// picker (the base branch, epics' branches, every ticket with a worktree), the search box (⌥⌘P, Go to file), All ·
+// Changed · Needs you · Same file with their counts, and the base's tree with every ticket's chips; on the right the
+// file pane. A ticket or epic picked in the picker shows its own Files tab, read-only, with the back link and "Open
+// SHOP-29". The base shows at once (`base_only`), the marks follow; the view asks again on the tickets' events and
+// every 5 s while an agent works, never while it isn't shown. Rows, marks and words are Rust's (`files_view.*`,
+// `files_view.rs`); this keeps the moment of interaction only.
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+
+import { useShortcut } from "../../app/registry";
+import { openTicket, selection } from "../../app/selection";
+import { useStore } from "../../app/store";
+import { Kbd, Popover, Tooltip } from "../../components";
+import type { FilesSearchView } from "../../generated/FilesSearchView";
+import type { FilesTreeRow } from "../../generated/FilesTreeRow";
+import type { FilesViewFilter } from "../../generated/FilesViewFilter";
+import type { FilesViewLoad } from "../../generated/FilesViewLoad";
+import type { FilesViewPage } from "../../generated/FilesViewPage";
+import type { FilesViewPickedLoad } from "../../generated/FilesViewPickedLoad";
+import type { FilesViewPicker } from "../../generated/FilesViewPicker";
+import type { FilesViewPickerRow } from "../../generated/FilesViewPickerRow";
+import { useServiceView } from "../../service";
+import { request } from "../../tauri";
+import { Icon } from "../../theme/Icon";
+import { FilesTab, SearchResults, TreeRowButton } from "../files/FilesTab";
+import { steppedRow, toggled, visibleRows } from "../files/logic";
+import {
+  PROJECT_FILES_EVENTS,
+  FIRST,
+  POLL_MS,
+  type ViewState,
+  goToFile,
+  pickFile,
+  pickerSections,
+  viewSearchFocus,
+  viewStates,
+} from "./logic";
+import "./files_view.css";
+
+const ignore = () => undefined;
+
+/** The last ⌥⌘P the view's search box took. */
+let focusHandled = 0;
+
+function useViewState(project: string): [ViewState, (change: (s: ViewState) => ViewState) => void] {
+  const all = useStore(viewStates);
+  const state = all.get(project) ?? FIRST;
+  const update = useCallback(
+    (change: (s: ViewState) => ViewState) => {
+      viewStates.update((m) => new Map(m).set(project, change(m.get(project) ?? FIRST)));
+    },
+    [project],
+  );
+  return [state, update];
+}
+
+/** Counts up every [`POLL_MS`] while `on` (an agent works and the view is shown). */
+function usePoll(on: boolean): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const timer = setInterval(() => {
+      setTick((t) => t + 1);
+    }, POLL_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [on]);
+  return tick;
+}
+
+/** The picker over the source bar (FIL-07, `s28-04`): its sections, filtered by what is typed. */
+export function PickerBody({
+  picker,
+  query,
+  onQuery,
+  onPick,
+}: {
+  picker: FilesViewPicker;
+  query: string;
+  onQuery: (query: string) => void;
+  onPick: (row: FilesViewPickerRow) => void;
+}) {
+  return (
+    <div className="files-view-picker">
+      <label className="files-search">
+        <Icon name="search" size={13} />
+        <input
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- the picker opens to be typed in
+          autoFocus
+          value={query}
+          placeholder={picker.placeholder}
+          aria-label={picker.placeholder}
+          onChange={(e) => {
+            onQuery(e.target.value);
+          }}
+        />
+      </label>
+      {pickerSections(picker, query).map((section) => (
+        <div key={section.title} className="files-view-picker-section">
+          <span className="files-view-picker-title">{section.title}</span>
+          {section.rows.map((row) => (
+            <button
+              key={row.pick.kind === "base" ? "" : row.pick.key}
+              type="button"
+              className="files-view-picker-row"
+              onClick={() => {
+                onPick(row);
+              }}
+            >
+              {row.key !== null && <span className="files-view-picker-key">{row.key}</span>}
+              <span className="files-view-picker-name">{row.title}</span>
+              {row.detail !== null && <span className="files-view-picker-detail">{row.detail}</span>}
+            </button>
+          ))}
+        </div>
+      ))}
+      {picker.no_worktree !== null && <p className="files-view-picker-note">{picker.no_worktree}</p>}
+    </div>
+  );
+}
+
+/** The source bar: "main · every ticket’s changes" over "the base branch · 8 tickets, 11 files"; opens the picker. */
+function SourceBar({ project, page }: { project: string; page: FilesViewPage }) {
+  const [, update] = useViewState(project);
+  const button = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const load = useCallback(
+    () =>
+      open ? (request("files_view.sources", { project }) as Promise<FilesViewPicker>) : Promise.resolve(null),
+    [project, open],
+  );
+  const { view: picker } = useServiceView(load, PROJECT_FILES_EVENTS);
+  const close = useCallback(() => {
+    setOpen(false);
+    setQuery("");
+  }, []);
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        className="files-source files-view-source"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => {
+          if (open) close();
+          else setOpen(true);
+        }}
+      >
+        <Icon name="git-branch" size={14} />
+        <span className="files-source-text">
+          <span className="files-source-title">{page.source.title}</span>
+          <span className="files-source-sub">{page.source.subtitle}</span>
+        </span>
+        <Icon name="chevron-down" size={12} />
+      </button>
+      {open && picker && (
+        <Popover label={picker.placeholder} anchor={button} onClose={close}>
+          <PickerBody
+            picker={picker}
+            query={query}
+            onQuery={setQuery}
+            onPick={(row) => {
+              close();
+              update((s) => ({ ...s, picked: row.pick.kind === "base" ? null : row.pick.key }));
+            }}
+          />
+        </Popover>
+      )}
+    </>
+  );
+}
+
+/** All · Changed 11 · Needs you 6 · Same file 1; Needs you says what it counts on hover. */
+export function Filters({
+  page,
+  onFilter,
+}: {
+  page: FilesViewPage;
+  onFilter: (filter: FilesViewFilter) => void;
+}) {
+  return (
+    <div className="segmented files-view-filters" role="radiogroup" aria-label={page.source.title}>
+      {page.filters.map((f) => {
+        const button = (
+          <button
+            type="button"
+            role="radio"
+            className="segment"
+            aria-checked={f.filter === page.filter}
+            tabIndex={f.filter === page.filter ? 0 : -1}
+            onClick={() => {
+              onFilter(f.filter);
+            }}
+          >
+            {f.label}
+          </button>
+        );
+        return f.tooltip === null ? (
+          <span key={f.filter}>{button}</span>
+        ) : (
+          <Tooltip key={f.filter} text={f.tooltip} detail={f.detail === null ? [] : [f.detail]}>
+            {button}
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+}
+
+export interface FilesViewBodyProps {
+  project: string;
+  page: FilesViewPage;
+  /** The tree's rows as shown: the opened folders' rows under them. */
+  rows: readonly FilesTreeRow[];
+  open: ReadonlySet<string>;
+  file: string | null;
+  /** The search's matches while something is typed. */
+  found: FilesSearchView | null;
+  query: string;
+  onQuery: (query: string) => void;
+  searchKey?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  searchRef?: React.RefObject<HTMLInputElement | null>;
+  selectedMatch: number;
+  onOpenMatch: (path: string) => void;
+  onRow: (row: FilesTreeRow) => void;
+  onFilter: (filter: FilesViewFilter) => void;
+  /** The source bar (the gallery draws it without its picker). */
+  source?: ReactNode;
+}
+
+/** The view for a loaded page (also what the gallery and the markup tests render). */
+export function FilesViewBody({
+  project,
+  page,
+  rows,
+  open,
+  file,
+  found,
+  query,
+  onQuery,
+  searchKey,
+  searchRef,
+  selectedMatch,
+  onOpenMatch,
+  onRow,
+  onFilter,
+  source,
+}: FilesViewBodyProps) {
+  let left: ReactNode;
+  if (found !== null) {
+    left = (
+      <SearchResults
+        found={found}
+        selected={selectedMatch}
+        onOpen={(path) => {
+          onOpenMatch(path);
+        }}
+      />
+    );
+  } else {
+    left = (
+      <div className="files-list" role="tree" aria-label={page.source.title}>
+        {rows.map((row) => (
+          <TreeRowButton
+            key={`${row.kind}:${row.path}`}
+            row={row}
+            open={page.filter !== "all" || open.has(row.path)}
+            selected={file === row.path}
+            onPress={onRow}
+          />
+        ))}
+      </div>
+    );
+  }
+  let main: ReactNode;
+  if (page.empty !== null) {
+    main = (
+      <div className="files-view-empty">
+        <p className="files-view-empty-title">{page.empty.title}</p>
+        <p className="files-quiet">{page.empty.text}</p>
+      </div>
+    );
+  } else {
+    main = <p className="files-quiet files-pick">{page.pick}</p>;
+  }
+  return (
+    <div className="files files-view" data-project={project}>
+      <aside className="files-side">
+        {source}
+        <label className="files-search">
+          <Icon name="search" size={13} />
+          <input
+            ref={searchRef}
+            value={query}
+            placeholder={page.search.placeholder}
+            aria-label={page.search.placeholder}
+            onChange={(e) => {
+              onQuery(e.target.value);
+            }}
+            onKeyDown={searchKey}
+          />
+          {page.search.keys !== null && query === "" && <Kbd keys={page.search.keys} />}
+        </label>
+        {found === null && <Filters page={page} onFilter={onFilter} />}
+        {found === null && page.loading !== null && (
+          <p className="files-quiet files-view-loading">{page.loading}</p>
+        )}
+        {left}
+      </aside>
+      <div className="files-main">{main}</div>
+    </div>
+  );
+}
+
+/** What the search box shows: its matches as it is typed (the answer to the latest text only). */
+function useSearch(project: string, query: string): FilesSearchView | null {
+  const [found, setFound] = useState<FilesSearchView | null>(null);
+  const searching = query.trim() !== "";
+  useEffect(() => {
+    if (!searching) return;
+    let current = true;
+    (request("files_view.search", { project, query }) as Promise<FilesSearchView>).then((v) => {
+      if (current) setFound(v);
+    }, ignore);
+    return () => {
+      current = false;
+    };
+  }, [project, query, searching]);
+  return searching ? found : null;
+}
+
+/** The base branch with every ticket's changes on top. */
+function ProjectSource({ project }: { project: string }) {
+  const [state, update] = useViewState(project);
+  const loadBase = useCallback(
+    () => request("files_view.view", { project, filter: "all", base_only: true }) as Promise<FilesViewLoad>,
+    [project],
+  );
+  const { view: base } = useServiceView(loadBase, []);
+  // Whether the last answer had an agent working: then the view asks again every 5 s.
+  const [working, setWorking] = useState(false);
+  const tick = usePoll(working);
+  const load = useCallback(
+    () =>
+      (request("files_view.view", { project, filter: state.filter }) as Promise<FilesViewLoad>).then(
+        (answer) => {
+          setWorking(answer.view?.working ?? false);
+          return answer;
+        },
+      ),
+    // `tick` asks again while an agent works (FIL-10).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- tick is a refetch trigger, not read
+    [project, state.filter, tick],
+  );
+  const { view: full, error } = useServiceView(load, PROJECT_FILES_EVENTS);
+  const fresh = full?.view?.project === project && full.view.filter === state.filter ? full.view : null;
+  const fallback = state.filter === "all" && base?.view?.project === project ? base.view : null;
+  const page = fresh ?? fallback;
+
+  // The opened folders' rows for this page: a new page (the work moved on) asks for them again.
+  const [cache, setCache] = useState<{
+    page: FilesViewPage | null;
+    rows: ReadonlyMap<string, FilesTreeRow[]>;
+  }>({
+    page: null,
+    rows: new Map(),
+  });
+  const loaded = cache.page === page ? cache.rows : new Map<string, FilesTreeRow[]>();
+  const keep = useCallback(
+    (path: string, rows: FilesTreeRow[]) => {
+      setCache((c) => ({ page, rows: new Map(c.page === page ? c.rows : []).set(path, rows) }));
+    },
+    [page],
+  );
+  const askFolder = useCallback(
+    (path: string, current: () => boolean = () => true) => {
+      (
+        request("files_view.tree", { project, path, depth: path.split("/").length }) as Promise<
+          FilesTreeRow[]
+        >
+      ).then((rows) => {
+        if (current()) keep(path, rows);
+      }, ignore);
+    },
+    [project, keep],
+  );
+  useEffect(() => {
+    if (page?.filter !== "all") return;
+    let current = true;
+    for (const path of state.open) askFolder(path, () => current);
+    return () => {
+      current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per page: a folder opened later loads on its click
+  }, [askFolder]);
+
+  const [query, setQuery] = useState("");
+  const found = useSearch(project, query);
+  const [moved, setMoved] = useState<{ found: FilesSearchView | null; index: number }>({
+    found: null,
+    index: -1,
+  });
+  const selected = moved.found === found ? moved.index : found && found.rows.length > 0 ? 0 : -1;
+  const search = useRef<HTMLInputElement>(null);
+  const focusAsks = useStore(viewSearchFocus);
+  useEffect(() => {
+    if (focusAsks <= focusHandled) return;
+    focusHandled = focusAsks;
+    search.current?.focus();
+  }, [focusAsks]);
+  const openMatch = (path: string) => {
+    setQuery("");
+    update((s) => pickFile(s, path));
+  };
+
+  if (!page) return <p className="files-quiet files-problem">{full?.problem ?? error?.message ?? ""}</p>;
+  const rows = page.filter === "all" ? visibleRows(page.rows, state.open, loaded) : page.rows;
+  return (
+    <FilesViewBody
+      project={project}
+      page={page}
+      rows={rows}
+      open={state.open}
+      file={state.file}
+      found={found}
+      query={query}
+      onQuery={setQuery}
+      searchRef={search}
+      searchKey={(e) => {
+        if (e.key === "Escape" && query !== "") {
+          e.preventDefault();
+          e.stopPropagation();
+          setQuery("");
+        } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          setMoved({
+            found,
+            index: steppedRow(selected, found?.rows.length ?? 0, e.key === "ArrowDown" ? 1 : -1),
+          });
+        } else if (e.key === "Enter") {
+          const row = found?.rows[selected];
+          if (row) {
+            e.preventDefault();
+            e.stopPropagation();
+            openMatch(row.path);
+          }
+        }
+      }}
+      selectedMatch={selected}
+      onOpenMatch={openMatch}
+      onRow={(row) => {
+        if (row.kind !== "folder") {
+          update((s) => ({ ...s, file: row.path }));
+          return;
+        }
+        if (page.filter !== "all") return;
+        update((s) => ({ ...s, open: toggled(s.open, row.path) }));
+        if (!state.open.has(row.path) && !loaded.has(row.path)) askFolder(row.path);
+      }}
+      onFilter={(filter) => {
+        update((s) => ({ ...s, filter }));
+      }}
+      source={<SourceBar project={project} page={page} />}
+    />
+  );
+}
+
+/** A ticket or epic picked in the picker: its own Files tab, read-only, with the back link and "Open SHOP-29". */
+function PickedSource({ project, picked }: { project: string; picked: string }) {
+  const [, update] = useViewState(project);
+  const load = useCallback(
+    () => request("files_view.picked", { project, key: picked }) as Promise<FilesViewPickedLoad>,
+    [project, picked],
+  );
+  const { view: loaded, error } = useServiceView(load, PROJECT_FILES_EVENTS);
+  const back = (label: string) => (
+    <button
+      type="button"
+      className="files-view-back"
+      onClick={() => {
+        update((s) => ({ ...s, picked: null }));
+      }}
+    >
+      <Icon name="arrow-left" size={12} />
+      <span>{label}</span>
+    </button>
+  );
+  const view = loaded?.picked?.key === picked ? loaded.picked : null;
+  if (!view) {
+    return (
+      <div className="files files-view">
+        <aside className="files-side">
+          {back("")}
+          <p className="files-quiet files-problem">{loaded?.problem ?? error?.message ?? ""}</p>
+        </aside>
+      </div>
+    );
+  }
+  return (
+    <div className="files-view-picked">
+      <FilesTab
+        ticket={picked}
+        readOnly={{
+          head: back(view.back),
+          subtitle: view.tab.source.subtitle,
+          note: (
+            <div className="files-view-picked-note">
+              <span className="files-quiet">{view.note}</span>
+              <button
+                type="button"
+                className="files-view-open"
+                onClick={() => {
+                  openTicket(picked, "files");
+                }}
+              >
+                <Icon name="external-link" size={12} />
+                <span>{view.open}</span>
+              </button>
+            </div>
+          ),
+        }}
+      />
+    </div>
+  );
+}
+
+/** The view for the shown project (`Board.tsx` draws it in place of the columns on Files). */
+export function FilesView({ project }: { project: string }) {
+  const [state] = useViewState(project);
+  // ⌥⌘P with no ticket open: the view's search box (the picked tab's, when one is picked); with a sheet open the
+  // tab's handler takes it (FIL-11).
+  useShortcut(
+    "go_to_file",
+    useCallback(() => goToFile(project, selection.get().ticket !== null), [project]),
+  );
+  return state.picked === null ? (
+    <ProjectSource key={project} project={project} />
+  ) : (
+    <PickedSource key={`${project}:${state.picked}`} project={project} picked={state.picked} />
+  );
+}

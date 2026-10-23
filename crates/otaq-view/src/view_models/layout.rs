@@ -1,6 +1,6 @@
 //! The window's layout (SHB-01, d0113, *24 → Row · The Project agent*): project rail | the **Project agent panel**,
 //! only while it is open, 420 px wide and pushing the board | the main area. There is no always-visible pane, no strip
-//! and no Board | Files tab row: the project Files view stays parked ([`FILES_VIEW`], d0090). The page asks once at
+//! and no Board | Files tab row: the project Files view is the toolbar's third view (FIL-01). The page asks once at
 //! start (`layout.view`); only whether the panel is open stays on the page, per window.
 //!
 //! The ticket sheet's sizes are `panel.rs`'s; it opens over the main area (SHL-05) and uses [`SizeClass`] too.
@@ -74,10 +74,6 @@ impl ClassWidths {
 
 /// The Project agent panel's width while it is open (SHB-01, `s24-05`): the same at every window size.
 pub const AGENT_PANEL: f32 = 420.;
-
-/// Whether the shell has the project Files view. Off while it is parked (d0087 changelog 2026-10-18, d0090,
-/// confirmed 2026-10-23): the title bar has no Files place, and ⇧⌘O / ⌥⌘P are neither bound nor listed.
-pub const FILES_VIEW: bool = false;
 
 /// The main area's width in a window `window_width` px wide: all of it after the rail, less the panel while it is
 /// open (it pushes the board, d0113).

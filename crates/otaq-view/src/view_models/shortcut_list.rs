@@ -3,7 +3,7 @@
 //! share its title (Next / previous ticket, Project 1–9); its keys are joined by "or", a sequence's two keys by
 //! "then". A row with a changed key is drawn in the accent tint with "changed"; with the letters off, a key with no
 //! modifier is left out of a row that has another, and a row with only such keys stays, dimmed, with "off". Keyless
-//! actions and the parked Files view's aren't listed.
+//! actions aren't listed.
 
 use serde::Serialize;
 use ts_rs::TS;
@@ -337,6 +337,7 @@ mod tests {
             [
                 ("Board", keys(&[&["⇧⌘B"], &["g", "b"]]), None),
                 ("List", keys(&[&["g", "l"]]), None),
+                ("Files", keys(&[&["⇧⌘O"], &["g", "f"]]), None),
                 ("Pause / Resume agents", keys(&[&["⇧⌘."]]), None),
                 ("Activity", keys(&[&["⇧⌘U"], &["g", "a"]]), None),
                 ("Settings", keys(&[&["⌘,"]]), None),
@@ -355,7 +356,7 @@ mod tests {
                     keys(&[&["1–4"], &["g", "o / s / f / a"]]),
                     None
                 ),
-                ("Search the ticket\u{2019}s files", keys(&[&["⌥⌘P"]]), None),
+                ("Go to file", keys(&[&["⌥⌘P"]]), None),
                 (
                     "Next / previous ticket tab",
                     keys(&[&["⌃Tab / ⌃⇧Tab"]]),
@@ -492,9 +493,8 @@ mod tests {
     }
 
     /// Park, Close ticket, Open PR, Re-run validation and Open diff have no key: not listed until the user gives one.
-    /// The parked Files view's keys are never listed.
     #[test]
-    fn no_keyless_or_parked_rows() {
+    fn no_keyless_rows() {
         let titles = |list: &ShortcutList| -> Vec<&str> {
             list.columns
                 .iter()
@@ -510,11 +510,10 @@ mod tests {
                 "Open PR",
                 "Re-run validation",
                 "Open diff",
-                "Files view",
             ] {
                 assert!(!titles(&list).contains(&title), "{title}");
             }
-            assert_eq!(titles(&list).len(), 26);
+            assert_eq!(titles(&list).len(), 27);
         }
         let list = mac(&CustomKeys(vec![replaced(KeyAction::Park, 0, "g p")]), true);
         let park = row_of(&list, "Park").unwrap();

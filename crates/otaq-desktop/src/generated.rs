@@ -332,6 +332,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::project_menu::Gallery::export_all(&cfg)?;
     // The Flow setup page (T-0436): whether it shows instead of the board.
     crate::api::export_flow_setup_page_types(&cfg)?;
+    // The project Files view (T-0478, FIL-01…FIL-04, FIL-07): its page, filters, picker and picked source.
+    crate::api::export_files_view_types(&cfg)?;
     Ok(())
 }
 

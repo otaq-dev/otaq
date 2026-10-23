@@ -1,7 +1,7 @@
 // The app frame (*24 → Row · The two views*, *Row · The Project agent*; SHB-01, d0113): the header row (also the title
 // bar), the banner area across the window that pushes everything under it down, then **rail | Project agent panel
 // (only while open, 420 px, pushing the board) | main area**. The main area holds the board (no Board | Files tabs:
-// the project Files view stays parked, d0090); the ticket sheet opens over its right side (SHL-05) and the Ask bar
+// the project Files view is the toolbar's third view, FIL-01); the ticket sheet opens over its right side (SHL-05) and the Ask bar
 // floats at its bottom centre. The overlay and toast hosts go over everything. Each slot is filled by the screen
 // registered for it; an empty slot shows its name so the layout can be checked before its screen exists.
 import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";

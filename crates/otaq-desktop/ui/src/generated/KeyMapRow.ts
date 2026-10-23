@@ -4,8 +4,4 @@ import type { ShortcutKey } from "./ShortcutKey";
 /**
  * One modifier-key row: the action's title and its keys per column; none is "—". `KeyMapRow` on the page.
  */
-export type KeyMapRow = { label: string, 
-/**
- * The Files view's rows: their tag ([`PARKED`]); their keys are drawn dimmed.
- */
-parked: string | null, mac: Array<ShortcutKey>, win_linux: Array<ShortcutKey>, in_terminal: Array<ShortcutKey>, };
+export type KeyMapRow = { label: string, mac: Array<ShortcutKey>, win_linux: Array<ShortcutKey>, in_terminal: Array<ShortcutKey>, };

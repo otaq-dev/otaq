@@ -10,7 +10,7 @@
 
 use otaq_core::board::settings::KeyboardSettings;
 
-use crate::keymap::{Binding, CustomKeys, KeyAction, Platform, user_keys_for};
+use crate::keymap::{Binding, CustomKeys, KeyAction, Platform, user_keys};
 use crate::keymap_edit::custom_keys;
 
 /// The user's keys on one platform, as the labels read them.
@@ -22,12 +22,11 @@ pub struct KeyLabels {
 }
 
 impl KeyLabels {
-    /// `custom` applied to the base map; `letters`: the single-letter switch. The parked Files view's actions are
-    /// included, so its tabs' hint has its keys whenever its tab is drawn (`layout::view_for`).
+    /// `custom` applied to the base map; `letters`: the single-letter switch.
     pub fn new(platform: Platform, custom: &CustomKeys, letters: bool) -> Self {
         Self {
             platform,
-            bindings: user_keys_for(platform, custom, true),
+            bindings: user_keys(platform, custom),
             letters,
         }
     }
@@ -49,6 +48,19 @@ impl KeyLabels {
     /// The action's key outside terminals ("⌘B", "Ctrl+B", "e", "g e"); `None`: no chip.
     pub fn label(&self, action: KeyAction) -> Option<String> {
         self.pick(action, false)
+    }
+
+    /// Every key of the action outside terminals, its modifier keys first, then its letters while they are on: "⇧⌘O ·
+    /// g f" in the Files segment's tooltip (`s28-02`).
+    pub fn all_labels(&self, action: KeyAction) -> Vec<String> {
+        let keys: Vec<&Binding> = self
+            .bindings
+            .iter()
+            .filter(|b| b.action == action && b.place.outside_terminals())
+            .collect();
+        let modifier = keys.iter().filter(|b| !b.key.is_letter());
+        let letters = keys.iter().filter(|b| self.letters && b.key.is_letter());
+        modifier.chain(letters).map(|b| b.text.clone()).collect()
     }
 
     /// The action's key while a terminal has focus, for a label shown in one (the terminal tab's ⌃` and Find, the

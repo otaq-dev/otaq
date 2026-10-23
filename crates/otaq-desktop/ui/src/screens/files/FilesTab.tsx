@@ -11,12 +11,14 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import type { TicketProps } from "../../app/registry";
+import { openTicket } from "../../app/selection";
 import { createStore, useStore } from "../../app/store";
 import { Button, DecisionsList, Kbd, Segmented } from "../../components";
 import type { DecisionItemView } from "../../generated/DecisionItemView";
@@ -24,6 +26,7 @@ import type { DecisionsSection } from "../../generated/DecisionsSection";
 import type { DiffFileView } from "../../generated/DiffFileView";
 import type { FilesChangeRow } from "../../generated/FilesChangeRow";
 import type { FilesChangesView } from "../../generated/FilesChangesView";
+import type { FilesChip } from "../../generated/FilesChip";
 import type { FilesComments } from "../../generated/FilesComments";
 import type { FilesFilePage } from "../../generated/FilesFilePage";
 import type { FilesFilter } from "../../generated/FilesFilter";
@@ -75,6 +78,15 @@ let focusHandled = 0;
 /** Each ticket's tab state while the app runs, so leaving the tab and coming back keeps the open file. */
 const tabStates = createStore<ReadonlyMap<string, FilesState>>(new Map());
 
+/**
+ * Opens `ticket`'s sheet on its Files tab with `file` open (the project Files view's Open on Files, FIL-05): the
+ * tab's state first, then the sheet.
+ */
+export function openFileIn(ticket: string, file: OpenFile): void {
+  tabStates.update((m) => new Map(m).set(ticket, openFile(m.get(ticket) ?? NOTHING_OPEN, file)));
+  openTicket(ticket, "files");
+}
+
 function useTabState(ticket: string): [FilesState, (change: (s: FilesState) => FilesState) => void] {
   const all = useStore(tabStates);
   const state = all.get(ticket) ?? NOTHING_OPEN;
@@ -121,7 +133,23 @@ function Path({ text }: { text: string }) {
   );
 }
 
-function Mark({ mark }: { mark: FilesMark | null }) {
+/** The project Files view's chips: one per ticket changing the file, in its status colour, then the other base's
+ * tag ("release/2.3"); nothing in a ticket's tab. */
+function Chips({ chips, branch }: { chips: readonly FilesChip[]; branch: string | null }) {
+  return (
+    <>
+      {chips.map((c) => (
+        <span key={c.key} className="files-chip" data-tone={c.tone}>
+          <span className="files-chip-dot" aria-hidden />
+          {c.key}
+        </span>
+      ))}
+      {branch !== null && <span className="files-branch">{branch}</span>}
+    </>
+  );
+}
+
+function Mark({ mark, children }: { mark: FilesMark | null; children?: ReactNode }) {
   if (!mark) return null;
   return (
     <>
@@ -132,6 +160,7 @@ function Mark({ mark }: { mark: FilesMark | null }) {
         <span className="files-uncommitted" title={mark.uncommitted} aria-label={mark.uncommitted} />
       )}
       <span className="files-spacer" />
+      {children}
       {mark.counts !== null && <span className="files-counts">{mark.counts}</span>}
     </>
   );
@@ -168,6 +197,7 @@ export function TreeRowButton({
       type="button"
       className="files-row"
       data-quiet={row.quiet || undefined}
+      data-struck={row.struck || undefined}
       data-selected={selected || undefined}
       aria-expanded={folder ? open : undefined}
       aria-current={selected || undefined}
@@ -185,7 +215,17 @@ export function TreeRowButton({
       <Icon name={folder ? (open ? "folder-open" : "folder") : "file"} size={13} />
       <span className="files-name">{row.name}</span>
       <Tags tags={row.tags} />
-      {row.mark ? <Mark mark={row.mark} /> : <span className="files-spacer" />}
+      {row.mark ? (
+        <Mark mark={row.mark}>
+          <Chips chips={row.chips} branch={row.branch} />
+        </Mark>
+      ) : (
+        <>
+          <span className="files-spacer" />
+          <Chips chips={row.chips} branch={row.branch} />
+          {row.changed_below !== null && <span className="files-changed-below">{row.changed_below}</span>}
+        </>
+      )}
     </button>
   );
 }
@@ -244,7 +284,13 @@ export function SearchResults({
             )}
           </span>
           <Tags tags={row.tags} />
-          {row.mark ? <Mark mark={row.mark} /> : <span className="files-spacer" />}
+          {row.mark ? (
+            <Mark mark={row.mark}>
+              <Chips chips={row.chips} branch={row.branch} />
+            </Mark>
+          ) : (
+            <span className="files-spacer" />
+          )}
         </button>
       ))}
       {found.empty !== null && <p className="files-quiet">{found.empty}</p>}
@@ -809,6 +855,10 @@ export interface FilesTabBodyProps {
   onState: (change: (s: FilesState) => FilesState) => void;
   /** Reloads All changes after Unified · Split. */
   reload: () => void;
+  /** Above the source (the project Files view's back link to the base, FIL-07). */
+  head?: ReactNode;
+  /** Above the right side (a picked ticket's "Open SHOP-29" and its note in the Files view). */
+  note?: ReactNode;
 }
 
 /** The tab for a loaded view (also what the markup tests render). */
@@ -822,6 +872,8 @@ export function FilesTabBody({
   state,
   onState,
   reload,
+  head,
+  note,
 }: FilesTabBodyProps) {
   const filter: FilesFilter = shownFilter(state, view.opens_on);
   const ctx = useComments(ticket, comments);
@@ -925,6 +977,7 @@ export function FilesTabBody({
   return (
     <div className="files">
       <aside className="files-side">
+        {head}
         <div className="files-source">
           <Icon name={view.source.kind === "worktree" ? "folder-git-2" : "git-branch"} size={14} />
           <div className="files-source-text">
@@ -998,14 +1051,24 @@ export function FilesTabBody({
           setPane(el);
         }}
       >
+        {note}
         {main}
       </div>
     </div>
   );
 }
 
-/** The Files tab registered in the sheet: loads the frame, the comments and, under Changed, All changes. */
-export function FilesTab({ ticket }: TicketProps) {
+/** The project Files view's picked ticket or epic (FIL-07): its tab, read-only, with the view's back link and note. */
+export interface ReadOnlyTab {
+  head: ReactNode;
+  note: ReactNode;
+  /** The source's subtitle, ending "· read-only". */
+  subtitle: string;
+}
+
+/** The Files tab registered in the sheet: loads the frame, the comments and, under Changed, All changes. Read-only (the
+ * Files view's picked source): no comments, review notes or decisions. */
+export function FilesTab({ ticket, readOnly }: TicketProps & { readOnly?: ReadOnlyTab }) {
   const [state, onState] = useTabState(ticket);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => {
@@ -1013,7 +1076,15 @@ export function FilesTab({ ticket }: TicketProps) {
   }, []);
   const load = useCallback(() => request("files.view", { key: ticket }) as Promise<FilesLoad>, [ticket]);
   const { view: loaded, error } = useServiceView(load, FILES_EVENTS);
-  const view = loaded?.view;
+  // Kept by identity: the tree asks for its opened folders again only for a new view.
+  const subtitle = readOnly?.subtitle;
+  const view = useMemo(
+    () =>
+      subtitle !== undefined && loaded?.view
+        ? { ...loaded.view, source: { ...loaded.view.source, subtitle } }
+        : loaded?.view,
+    [loaded, subtitle],
+  );
   const filter = view ? shownFilter(state, view.opens_on) : null;
   // `tick` makes a new load after Unified · Split (the service ignores it).
   const loadChanges = useCallback(
@@ -1024,19 +1095,29 @@ export function FilesTab({ ticket }: TicketProps) {
     [ticket, filter, tick],
   );
   const { view: changes } = useServiceView(loadChanges, FILES_EVENTS);
+  const writable = readOnly === undefined;
   const loadComments = useCallback(
-    () => request("files.comments", { key: ticket }) as Promise<FilesComments>,
-    [ticket],
+    () =>
+      writable
+        ? (request("files.comments", { key: ticket }) as Promise<FilesComments>)
+        : Promise.resolve(undefined),
+    [ticket, writable],
   );
   const { view: comments } = useServiceView(loadComments, FILES_EVENTS);
   const loadNotes = useCallback(
-    () => request("files.review", { key: ticket }) as Promise<FilesReviewNotes>,
-    [ticket],
+    () =>
+      writable
+        ? (request("files.review", { key: ticket }) as Promise<FilesReviewNotes>)
+        : Promise.resolve(undefined),
+    [ticket, writable],
   );
   const { view: notes } = useServiceView(loadNotes, FILES_EVENTS);
   const loadDecisions = useCallback(
-    () => request("review.decisions", { key: ticket }) as Promise<DecisionsSection | null>,
-    [ticket],
+    () =>
+      writable
+        ? (request("review.decisions", { key: ticket }) as Promise<DecisionsSection | null>)
+        : Promise.resolve(null),
+    [ticket, writable],
   );
   const { view: decisions } = useServiceView(loadDecisions, FILES_EVENTS);
   if (!view || view.key !== ticket) {
@@ -1049,11 +1130,12 @@ export function FilesTab({ ticket }: TicketProps) {
       view={view}
       comments={comments?.key === ticket ? comments : undefined}
       changes={changes?.key === ticket ? changes : undefined}
-      notes={notes}
+      {...(notes && { notes })}
       decisions={decisions}
       state={state}
       onState={onState}
       reload={reload}
+      {...(readOnly && { head: readOnly.head, note: readOnly.note })}
     />
   );
 }

@@ -1112,8 +1112,16 @@ describe("the toolbar (BRD-01)", () => {
           tooltip: "List view",
           keys: "g l",
         },
+        {
+          ...option("Files", false, { kind: "view", view: "files" }),
+          icon: "folder-open",
+          tooltip: "Files",
+          keys: "⇧⌘O · g f",
+        },
       ],
     },
+    subtitle: null,
+    live: null,
     lanes: {
       label: "Lanes",
       icon: null,
@@ -1160,6 +1168,39 @@ describe("the toolbar (BRD-01)", () => {
     expect(html).toMatch(/role="switch" class="board-chip-button" aria-checked="false">.*Fold empty columns/);
     expect(html).toContain("<span>All tickets</span>");
     expect(html).toContain("<span>New ticket</span>");
+    expect(html).toContain("<span>Files</span>");
+    expect(html).not.toContain("board-toolbar-live");
+  });
+
+  it("draws the Files view's subtitle and Live dot, and nothing of the Board's (FIL-01, s28-03)", () => {
+    const views = TOOLBAR.views.options.map((o) => ({ ...o, selected: o.label === "Files" }));
+    const files = {
+      ...TOOLBAR,
+      views: { ...TOOLBAR.views, options: views },
+      subtitle: "What the base branch looks like, and which agents are changing which files",
+      live: "Live",
+      lanes: null,
+      dependencies: null,
+      switch: null,
+      all_tickets: null,
+      new_ticket: null,
+      new_ticket_keys: null,
+    } as unknown as Parameters<typeof Toolbar>[0]["toolbar"];
+    const html = renderToStaticMarkup(
+      createElement(Toolbar, {
+        toolbar: files,
+        onView: () => undefined,
+        onAllTickets: () => undefined,
+        onNewTicket: () => undefined,
+      }),
+    );
+    expect(html).toContain(
+      '<span class="board-toolbar-subtitle">What the base branch looks like, and which agents are changing which files</span>',
+    );
+    expect(html).toMatch(/board-toolbar-live-dot.*<span>Live<\/span>/);
+    expect(html).toMatch(/aria-checked="true" tabindex="0">.*<span>Files<\/span>/);
+    expect(html).not.toContain("All tickets");
+    expect(html).not.toContain('role="switch"');
   });
 
   it("←/→ step through a segment group, wrapping", () => {

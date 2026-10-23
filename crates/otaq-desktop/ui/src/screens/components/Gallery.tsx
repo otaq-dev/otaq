@@ -118,6 +118,7 @@ import { OverviewGallery } from "../overview/OverviewGallery";
 import { NewTicketReportGallery } from "../editor/NewTicketReportGallery";
 import { SheetGallery } from "../sheet/SheetGallery";
 import { FilesGallery } from "../files/FilesGallery";
+import { FilesViewGallery } from "../files_view/FilesViewGallery";
 import { SessionGallery } from "../session/SessionGallery";
 import { ListGallery } from "../list/ListGallery";
 import { EpicGallery } from "../epic/EpicGallery";
@@ -831,8 +832,8 @@ function MapKeys({ keys, map }: { keys: readonly ShortcutKey[]; map: KeyMapView 
   );
 }
 
-/** *01 · Components → Keyboard map (update AF · 0097)*: the single letters, the modifier keys in three columns (the
- * parked Files view's rows dimmed and tagged), and the notes. */
+/** *01 · Components → Keyboard map (update AF · 0097, update AO)*: the single letters, the modifier keys in three
+ * columns, and the notes. */
 function KeyboardMap({ map }: { map: KeyMapView }) {
   return (
     <div className="gallery-stack">
@@ -861,11 +862,8 @@ function KeyboardMap({ map }: { map: KeyMapView }) {
             ))}
           </div>
           {map.modifiers.map((row) => (
-            <div key={row.label} className="gallery-keyrow" data-parked={row.parked !== null || undefined}>
-              <span className="gallery-keylabel">
-                {row.label}
-                {row.parked !== null && <span className="gallery-keytag">{row.parked}</span>}
-              </span>
+            <div key={row.label} className="gallery-keyrow">
+              <span className="gallery-keylabel">{row.label}</span>
               {[row.mac, row.win_linux, row.in_terminal].map((keys, i) => (
                 <span key={map.columns[i]} className="gallery-keys">
                   <MapKeys keys={keys} map={map} />
@@ -2567,6 +2565,9 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         </Section>
         <Section title="25 · Files · the tree, a file, search, All changes, a line comment, the review bar (T-0468)">
           <FilesGallery />
+        </Section>
+        <Section title="28 · The project Files view · the tree with chips, filters, states, the picker (T-0478)">
+          <FilesViewGallery />
         </Section>
         <Section title="25 · Session's switch and lines, Activity's filters (T-0466)">
           <SessionGallery />

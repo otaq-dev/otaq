@@ -3713,7 +3713,7 @@ flow:
             .collect();
         assert_eq!(open, ["Backlog", "Ready for Dev"]);
         assert_eq!(folded.more_stages.at_start, None, "the rails fit");
-        assert!(folded.toolbar.switch.selected);
+        assert!(folded.toolbar.switch.as_ref().unwrap().selected);
         let grill = folded.columns[2].rail.as_ref().unwrap();
         assert_eq!(grill.tooltip, "Grill \u{b7} 0 tickets");
         assert!(!grill.dot);

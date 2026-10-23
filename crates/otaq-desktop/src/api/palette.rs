@@ -110,6 +110,13 @@ pub async fn view(app: &App, params: ViewParams) -> Result<View, RequestError> {
         .as_deref()
         .and_then(|key| all.iter().find(|t| t.key.to_string() == key))
         .map(OpenTicket::of);
+    // Go to file searches the Files view when it is the shown project's view (FIL-11).
+    let files_view = match params.project.as_deref() {
+        Some(project) => {
+            super::board::view_prefs(app, project).await.view == otaq_core::board::settings::BoardView::Files
+        }
+        None => false,
+    };
     let inputs = Inputs {
         bindings: &bindings,
         letters: keyboard.letters,
@@ -120,6 +127,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<View, RequestError> {
         context: Context {
             open,
             terminal: params.terminal,
+            files_view,
         },
     };
     Ok(palette::view(&params.query, &inputs))

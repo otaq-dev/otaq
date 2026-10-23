@@ -47,6 +47,8 @@ pub use files::{
     TextParams as FilesCommentText, TreeParams as FilesTreeParams,
 };
 #[cfg(test)]
+pub use files_view::export_types as export_files_view_types;
+#[cfg(test)]
 pub use flow_editor::export_types as export_flow_editor_types;
 #[cfg(test)]
 pub use keymap::Keymap;
@@ -194,6 +196,7 @@ areas! {
     sections,
     editor,
     files,
+    files_view,
     terminal_tab,
     review,
     strip,

@@ -5,6 +5,6 @@
  */
 export type FilesSearchBox = { placeholder: string, 
 /**
- * The user's key for "Search the ticket’s files" (KEY-08).
+ * The user's key for Go to file (KEY-08).
  */
 keys: string | null, };

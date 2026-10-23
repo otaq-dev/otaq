@@ -12,8 +12,6 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use crate::view_models::layout::FILES_VIEW;
-
 /// The ticket sheet's tabs (SHT-02): `SwitchTab(1..=4)`.
 pub const SHEET_TABS: u8 = 4;
 /// The second keys of their `g` sequences: Overview, Session, Files, Activity.
@@ -130,9 +128,9 @@ pub enum KeyAction {
     /// The Terminals drawer: open it, close it, and leave a focused terminal (d0068, d0087).
     Terminals,
     FindInTerminal,
-    /// The Files view of the main area (d0087), parked (d0090).
+    /// The project Files view, the toolbar's third view (FIL-01, FIL-11).
     ShowFiles,
-    /// Search the open ticket's files (FTB-02, SHB-04): its Files tab with the search box focused.
+    /// Go to file (FIL-11): the search box of the open ticket's Files tab, else of the project Files view.
     GoToFile,
 }
 
@@ -150,6 +148,7 @@ impl KeyAction {
             Self::ShowShortcuts,
             Self::ShowBoard,
             Self::ShowList,
+            Self::ShowFiles,
             Self::Pause,
             Self::OpenActivity,
             Self::Settings,
@@ -175,21 +174,15 @@ impl KeyAction {
             Self::OpenDiff,
             Self::Terminals,
             Self::FindInTerminal,
-            Self::ShowFiles,
         ]);
         all
     }
 
     /// A key of the open ticket sheet (its tabs): it comes before another action's same key while a sheet is open,
-    /// and the other one's runs when none is (`g a`: the Activity tab, else Activity, SHB-04).
+    /// and the other one's runs when none is (`g a`: the Activity tab, else Activity, SHB-04; `g f`: the Files tab,
+    /// else the Files view, FIL-11).
     pub fn in_sheet(self) -> bool {
         matches!(self, Self::SwitchTab(_))
-    }
-
-    /// The Files view's own action (⇧⌘O): unbound and unlisted while it's parked ([`FILES_VIEW`]). ⌥⌘P searches the
-    /// ticket's files (FTB-02) whatever the view.
-    pub fn is_files_view(self) -> bool {
-        matches!(self, Self::ShowFiles)
     }
 
     /// The action's name in Settings, the `?` list and the palette (design `s15-46`). The two halves of a pair drawn
@@ -227,8 +220,8 @@ impl KeyAction {
             Self::OpenDiff => "Open diff",
             Self::Terminals => "Terminals: open, close, leave the terminal",
             Self::FindInTerminal => "Find in terminal scrollback",
-            Self::ShowFiles => "Files view",
-            Self::GoToFile => "Search the ticket\u{2019}s files",
+            Self::ShowFiles => "Files",
+            Self::GoToFile => "Go to file",
         }
     }
 
@@ -343,7 +336,7 @@ impl KeyAction {
             }
             Self::Terminals => vec![k("⌃`", "Ctrl+`", "Ctrl+`"), letter("g t")],
             Self::FindInTerminal => vec![k("⌘F", "", "Ctrl+Shift+F")],
-            Self::ShowFiles => vec![k("⇧⌘O", "Ctrl+Shift+O", "Ctrl+Shift+O")],
+            Self::ShowFiles => vec![k("⇧⌘O", "Ctrl+Shift+O", "Ctrl+Shift+O"), letter("g f")],
             Self::GoToFile => vec![k("⌥⌘P", "Ctrl+Alt+P", "Ctrl+Shift+Alt+P")],
         }
     }
@@ -382,11 +375,10 @@ pub struct ActionInfo {
     pub group: KeyGroup,
 }
 
-/// Every listed action ([`KeyAction::all`]), with the parked Files view's left out while it's parked.
+/// Every listed action ([`KeyAction::all`]).
 pub fn action_infos() -> Vec<ActionInfo> {
     KeyAction::all()
         .into_iter()
-        .filter(|a| FILES_VIEW || !a.is_files_view())
         .map(|action| ActionInfo {
             action,
             title: action.title(),
@@ -404,10 +396,11 @@ pub struct SequenceHint {
 }
 
 /// The base map's sequences in the order the hint shows them ("g → b Board · l List · a Activity · t Terminals · e
-/// Epic", 0097); the user's own sequences for other actions follow, in the map's order.
-const HINT_ORDER: [KeyAction; 5] = [
+/// Epic", 0097; Files after List, FIL-11); the user's own sequences for other actions follow, in the map's order.
+const HINT_ORDER: [KeyAction; 6] = [
     KeyAction::ShowBoard,
     KeyAction::ShowList,
+    KeyAction::ShowFiles,
     KeyAction::OpenActivity,
     KeyAction::Terminals,
     KeyAction::FocusEpic,
@@ -909,16 +902,8 @@ impl CustomKeys {
 /// **The user's keys** on `platform`: the base map with `custom` applied, every key with where it works. The page's
 /// whole map (`keymap.map`).
 pub fn user_keys(platform: Platform, custom: &CustomKeys) -> Vec<Binding> {
-    user_keys_for(platform, custom, FILES_VIEW)
-}
-
-/// [`user_keys`] with the Files view on or off: off, its actions aren't bound.
-pub fn user_keys_for(platform: Platform, custom: &CustomKeys, files_view: bool) -> Vec<Binding> {
     let mut all = Vec::new();
     for action in KeyAction::all() {
-        if !files_view && action.is_files_view() {
-            continue;
-        }
         let base = action.base_keys();
         for slot in 0..base.len().max(custom.slots(action)) {
             let Ok(slot_number) = u8::try_from(slot) else {
@@ -954,11 +939,6 @@ pub fn user_keys_for(platform: Platform, custom: &CustomKeys, files_view: bool) 
 /// The base map's bindings: [`user_keys`] with no changes.
 pub fn bindings(platform: Platform) -> Vec<Binding> {
     user_keys(platform, &CustomKeys::default())
-}
-
-/// [`bindings`] with the Files view on or off.
-pub fn bindings_for(platform: Platform, files_view: bool) -> Vec<Binding> {
-    user_keys_for(platform, &CustomKeys::default(), files_view)
 }
 
 fn binding(
@@ -1216,7 +1196,12 @@ mod tests {
             row(OpenDiff, &[], &[], &[]),
             row(Terminals, &["⌃`", "g t"], &["Ctrl+`", "g t"], &["Ctrl+`"]),
             row(FindInTerminal, &["⌘F"], &[], &["Ctrl+Shift+F"]),
-            row(ShowFiles, &["⇧⌘O"], &["Ctrl+Shift+O"], &["Ctrl+Shift+O"]),
+            row(
+                ShowFiles,
+                &["⇧⌘O", "g f"],
+                &["Ctrl+Shift+O", "g f"],
+                &["Ctrl+Shift+O"],
+            ),
             row(GoToFile, &["⌥⌘P"], &["Ctrl+Alt+P"], &["Ctrl+Shift+Alt+P"]),
         ];
         for n in 1..=9 {
@@ -1355,13 +1340,10 @@ mod tests {
             let action = row.0;
             let (mac, win) = match action.in_sheet() {
                 true => (
-                    sheet_first(&bindings_for(Platform::Mac, true)),
-                    sheet_first(&bindings_for(Platform::WinLinux, true)),
+                    sheet_first(&bindings(Platform::Mac)),
+                    sheet_first(&bindings(Platform::WinLinux)),
                 ),
-                false => (
-                    bindings_for(Platform::Mac, true),
-                    bindings_for(Platform::WinLinux, true),
-                ),
+                false => (bindings(Platform::Mac), bindings(Platform::WinLinux)),
             };
             for text in &row.1 {
                 assert_eq!(
@@ -1442,7 +1424,7 @@ mod tests {
         let mut let_through: Vec<String> = (1..=9).map(|n| format!("Ctrl+{n}")).collect();
         let_through.extend(["Ctrl+`", "Ctrl+,", "Ctrl+Tab", "Ctrl+K", "Ctrl+P"].map(String::from));
         let_through.sort();
-        let win = bindings_for(Platform::WinLinux, true);
+        let win = bindings(Platform::WinLinux);
         let everywhere = |shift: bool| -> Vec<String> {
             let mut keys: Vec<String> = win
                 .iter()
@@ -1503,7 +1485,7 @@ mod tests {
                 .collect(),
         );
         for keys in [
-            bindings_for(Platform::WinLinux, true),
+            bindings(Platform::WinLinux),
             user_keys(Platform::WinLinux, &custom),
         ] {
             for text in [
@@ -1529,7 +1511,7 @@ mod tests {
                 );
             }
         }
-        let base = bindings_for(Platform::WinLinux, true);
+        let base = bindings(Platform::WinLinux);
         for text in ["Ctrl+Shift+C", "Ctrl+Shift+V"] {
             let key = Key::parse(text).unwrap();
             assert!(base.iter().all(|b| b.key != key), "{text}");
@@ -1566,14 +1548,17 @@ mod tests {
     #[test]
     fn no_key_means_two_things_in_one_place() {
         for platform in [Platform::Mac, Platform::WinLinux] {
-            let all = bindings_for(platform, true);
+            let all = bindings(platform);
             for inside in [false, true] {
                 let mut seen: HashMap<Key, KeyAction> = HashMap::new();
                 for (key, action, text) in place_keys(platform, inside, &all) {
                     if let Some(other) = seen.insert(key, action) {
-                        // `g a` is the sheet's Activity tab while a sheet is open, else Activity (SHB-04).
+                        // `g a` is the sheet's Activity tab while a sheet is open, else Activity (SHB-04); `g f`
+                        // its Files tab, else the Files view (FIL-11).
                         let sheet_first = (other.in_sheet() || action.in_sheet())
-                            && [other, action].contains(&KeyAction::OpenActivity);
+                            && [other, action].iter().any(|a| {
+                                matches!(a, KeyAction::OpenActivity | KeyAction::ShowFiles)
+                            });
                         assert!(other == action || sheet_first, "{text} (inside: {inside})");
                     }
                 }
@@ -1601,7 +1586,7 @@ mod tests {
                     Key::Stroke { stroke }
                 })
                 .collect();
-            let mut shared: Vec<String> = bindings_for(platform, true)
+            let mut shared: Vec<String> = bindings(platform)
                 .iter()
                 .filter(|b| b.place.outside_terminals() && editor.contains(&b.key))
                 .map(|b| b.text.clone())
@@ -2053,7 +2038,7 @@ mod tests {
             "⌘Q", "⌘W", "⌘H", "⌥⌘H", "⌘M", "⌃⌘F", "⌘Z", "⇧⌘Z", "⌘X", "⌘C", "⌘V", "⌘A", "⌘`", "⌘Tab",
         ];
         let taken: Vec<Key> = taken.iter().map(|t| Key::parse(t).unwrap()).collect();
-        for b in bindings_for(Platform::Mac, true) {
+        for b in bindings(Platform::Mac) {
             assert!(!taken.contains(&b.key), "{} is a menu or OS key", b.text);
             assert!(b.key.stroke().is_none_or(|s| s.key != " "), "{}", b.text);
         }
@@ -2068,7 +2053,7 @@ mod tests {
                 .map(|k| k.keys(platform).len())
                 .sum();
             assert_eq!(own.len(), texts, "every text parses on {platform:?}");
-            let map = bindings_for(platform, true);
+            let map = bindings(platform);
             for b in &own {
                 // Taken from the program in the terminal, as the app's own keys are (SES-10); ⇧↵ stays the
                 // program's, only its bytes change.
@@ -2191,8 +2176,7 @@ mod tests {
         );
     }
 
-    /// Each action's title and group as Settings draws them (`s15-46`, all defaults, macOS), the parked Files view
-    /// left out. Open diff isn't drawn there; it is listed last in The ticket.
+    /// Each action's title and group as Settings draws them (`s15-46`, all defaults, macOS). Open diff isn't drawn there; it is listed last in The ticket.
     #[test]
     fn the_titles_and_groups_are_the_designs() {
         let mut drawn: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -2227,6 +2211,7 @@ mod tests {
                     vec![
                         "Board",
                         "List",
+                        "Files",
                         "Pause / Resume agents",
                         "Activity",
                         "Settings",
@@ -2241,7 +2226,7 @@ mod tests {
                         "Open / close the ticket",
                         "Full page / back to the sheet",
                         "Ticket tabs",
-                        "Search the ticket\u{2019}s files",
+                        "Go to file",
                         "Next / previous ticket tab",
                         "Approve ▾",
                         "Send back",
@@ -2268,32 +2253,39 @@ mod tests {
         );
     }
 
-    /// d0087 (parked 2026-10-18): with the Files view off, ⇧⌘O isn't bound in any column, ⇧⌘B stays, and the rest of
-    /// the map is as with it on; ⌥⌘P searches the ticket's files either way (FTB-02).
+    /// FIL-11: ⇧⌘O and `g f` open the Files view (Ctrl+Shift+O on Windows/Linux, in terminals too); inside a sheet
+    /// `g f` is still its Files tab, tried first as `g a` is (the dispatcher's sheet-first order), and ⌥⌘P is Go to
+    /// file wherever it is pressed.
     #[test]
-    fn a_parked_files_view_binds_neither_of_its_keys() {
-        for platform in [Platform::Mac, Platform::WinLinux] {
-            let on = bindings_for(platform, true);
-            let off = bindings_for(platform, false);
-            assert_eq!(off, bindings(platform));
-            assert!(
-                off.iter().all(|b| !b.action.is_files_view()),
-                "{platform:?}"
-            );
-            assert!(off.iter().any(|b| b.action == KeyAction::ShowBoard));
-            let rest: Vec<_> = on
-                .into_iter()
-                .filter(|b| !b.action.is_files_view())
-                .collect();
-            assert_eq!(off, rest, "{platform:?}");
-        }
-        assert!(action_infos().iter().all(|a| !a.action.is_files_view()));
-        let off = bindings_for(Platform::Mac, false);
-        assert_eq!(runs(Platform::Mac, false, "⇧⌘O", &off), None);
+    fn files_is_bound_and_g_f_stays_the_files_tab_in_a_sheet() {
+        let mac = bindings(Platform::Mac);
         assert_eq!(
-            runs(Platform::Mac, false, "⌥⌘P", &off),
+            runs(Platform::Mac, false, "⇧⌘O", &mac),
+            Some(KeyAction::ShowFiles)
+        );
+        assert_eq!(
+            runs(Platform::Mac, false, "g f", &mac),
+            Some(KeyAction::ShowFiles)
+        );
+        assert_eq!(
+            runs(Platform::Mac, false, "g f", &sheet_first(&mac)),
+            Some(KeyAction::SwitchTab(3))
+        );
+        assert_eq!(
+            runs(Platform::Mac, false, "⌥⌘P", &mac),
             Some(KeyAction::GoToFile)
         );
+        let win = bindings(Platform::WinLinux);
+        assert_eq!(
+            runs(Platform::WinLinux, true, "Ctrl+Shift+O", &win),
+            Some(KeyAction::ShowFiles)
+        );
+        assert!(
+            action_infos()
+                .iter()
+                .any(|a| a.action == KeyAction::ShowFiles)
+        );
+        assert_eq!(KeyAction::GoToFile.title(), "Go to file");
     }
 
     /// Windows/Linux in or out of a terminal binds the same map (the place of each key says where it works).
@@ -2323,7 +2315,7 @@ mod tests {
         };
         assert_eq!(
             texts(&CustomKeys::default()),
-            "b Board · l List · a Activity · t Terminals · e Epic"
+            "b Board · l List · f Files · a Activity · t Terminals · e Epic"
         );
         let change = |action, slot, change| CustomKey {
             action,
@@ -2340,7 +2332,7 @@ mod tests {
         );
         assert_eq!(
             texts(&CustomKeys(vec![park.clone()])),
-            "b Board · l List · a Activity · t Terminals · e Epic · p Park"
+            "b Board · l List · f Files · a Activity · t Terminals · e Epic · p Park"
         );
         let custom = CustomKeys(vec![
             park,
@@ -2355,7 +2347,7 @@ mod tests {
         ]);
         assert_eq!(
             texts(&custom),
-            "b Board · l List · n Terminals · e Epic · p Park"
+            "b Board · l List · f Files · n Terminals · e Epic · p Park"
         );
         // Windows/Linux: the same letters (they never work in a terminal).
         assert_eq!(

@@ -1237,7 +1237,7 @@ mod tests {
     };
 
     /// `s15-46`: every group and row in the design's order with the macOS defaults; no row changed, no reset,
-    /// Reset all unavailable; the parked Files keys aren't listed; Open diff last under The ticket (Q222).
+    /// Reset all unavailable; Files (⇧⌘O, g f) under Views; Open diff last under The ticket (Q222).
     #[test]
     fn all_defaults() {
         let p = page(MAC, &KeyboardSettings::default());
@@ -1268,6 +1268,7 @@ mod tests {
             ("Show all shortcuts", vec!["?"]),
             ("Board", vec!["⇧⌘B", "g then b"]),
             ("List", vec!["g then l"]),
+            ("Files", vec!["⇧⌘O", "g then f"]),
             ("Pause / Resume agents", vec!["⇧⌘."]),
             ("Activity", vec!["⇧⌘U", "g then a"]),
             ("Settings", vec!["⌘,"]),
@@ -1280,7 +1281,7 @@ mod tests {
                 "Ticket tabs",
                 vec!["1–4", "g then o / g then s / g then f / g then a"],
             ),
-            ("Search the ticket\u{2019}s files", vec!["⌥⌘P"]),
+            ("Go to file", vec!["⌥⌘P"]),
             ("Next / previous ticket tab", vec!["⌃Tab / ⌃⇧Tab"]),
             ("Approve ▾", vec!["⌘↵"]),
             ("Send back", vec!["⌘⌫"]),
