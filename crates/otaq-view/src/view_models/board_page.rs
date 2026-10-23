@@ -39,7 +39,6 @@ use crate::view_models::check_dialogs;
 use crate::view_models::close;
 use crate::view_models::drag::{self, DropAction, DropFeedback};
 use crate::view_models::empty_board;
-use crate::view_models::epic_strip::Strip;
 use crate::view_models::filter::Token;
 use crate::view_models::flow_columns::{self, ColumnKind, Columns};
 use crate::view_models::search_page::FilterState;
@@ -354,9 +353,9 @@ pub struct BoardPage {
     pub scroll_chip: ScrollChip,
     /// The chain of every linked card, for the highlight on hover or selection (DEP-05, T-0229).
     pub chains: Vec<chain::View>,
-    /// The "Epics in flight" strip above the columns, while an epic is a track (EPC-10, T-0269); its stations
-    /// follow `columns`.
-    pub strip: Option<Strip>,
+    /// Lanes: Epic (EPL-01): one lane per epic across `columns`, "No epic" last; `null` with Lanes: None (and in
+    /// the List). The columns keep their headers and counts; their cards are the lanes'.
+    pub lanes: Option<Vec<crate::view_models::lanes::Lane>>,
     /// The focused epic (an `epic:` filter, EPC-18, Q55): its cards stay, the other cards, tracks and Done lines
     /// dim, and ↑↓ walk only its cards.
     pub focus: Option<EpicFocus>,
@@ -563,7 +562,7 @@ fn section_page(view: SectionView, tickets: &[Ticket]) -> SectionPage {
     }
 }
 
-fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
+pub(crate) fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
     let kind = view.kind;
     let dev = view.dev.map(|d: DevSections| DevPage {
         top: cards(d.top, tickets),
@@ -656,7 +655,7 @@ pub fn column_menu(id: &ColumnId, kind: ColumnKind) -> Vec<ColumnMenuItem> {
 }
 
 /// Puts each epic card's lead on it (d0083): the Lead row, Open lead, and "added by Wishlist lead" rows.
-fn with_leads(
+pub(crate) fn with_leads(
     columns: &mut [ColumnView],
     tickets: &[Ticket],
     leads: &[otaq_core::project_agents::lead::Lead],
@@ -723,9 +722,9 @@ pub fn page(
     };
     let mut built = board::build(&input);
     with_leads(&mut built, tickets, project.leads);
-    let done_folded = built
-        .iter()
-        .any(|c| c.kind == ColumnKind::Done && c.collapsed);
+    let view: ViewKind = prefs.view.into();
+    let lanes = (view == ViewKind::Board && prefs.lanes == otaq_core::board::settings::Lanes::Epic)
+        .then(|| crate::view_models::lanes::build(&input, prefs, project.leads));
     // Folded Done is a line under the last column, not a column of its own.
     let rails: Vec<bool> = built
         .iter()
@@ -742,10 +741,8 @@ pub fn page(
                 folded: false,
             },
         });
-    let view: ViewKind = prefs.view.into();
     BoardPage {
-        strip: Strip::with_leads(tickets, project.flow, project.leads)
-            .map(|s| s.with_done_rail(done_folded)),
+        lanes,
         columns: built.into_iter().map(|c| column_page(c, tickets)).collect(),
         empty: empty_board::shows(tickets.len(), false)
             .then(|| empty_board::view(project.name, keys)),
@@ -1757,8 +1754,9 @@ mod tests {
         ]
     }
 
-    /// EPC-11 on the page: the epic card carries its rows (draggable before anything starts); once SHOP-45.1 is
-    /// queued the epic is no Backlog card and SHOP-45.2 is no card at all, and Backlog counts what it shows.
+    /// EPC-11, EPL-01 on the page: the epic card carries its rows (draggable before anything starts); once
+    /// SHOP-45.1 is queued the epic is no Backlog card, SHOP-45.2 is a card of its own, and Backlog counts what it
+    /// shows.
     #[test]
     fn epics_and_children_show_once() {
         let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
@@ -1801,18 +1799,17 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(board.columns[0].cards.is_empty());
-        assert_eq!(board.columns[0].count, "0");
+        let backlog: Vec<&str> = board.columns[0].cards.iter().map(BoardCard::key).collect();
+        assert_eq!(backlog, ["SHOP-45.2"]);
+        assert_eq!(board.columns[0].count, "1");
         let ready: Vec<&str> = board.columns[1].cards.iter().map(BoardCard::key).collect();
         assert_eq!(ready, ["SHOP-45.1"]);
     }
 
-    /// EPC-10 on the page: no strip while the epic is a card; once SHOP-45.1 is queued the page carries the
-    /// strip, one station per shown column but Backlog, with the queued child under Ready for Dev and the other
-    /// as a "not queued" chip.
-    /// T-0289: the epic card's Lead row (Open lead without a lead) and the track's lead line come from the leads.
+    /// T-0289, EPL-01: the epic card's Lead row (Open lead without a lead) and the lane head's lead come from the
+    /// leads.
     #[test]
-    fn the_leads_reach_the_epic_card_and_the_track() {
+    fn the_leads_reach_the_epic_card_and_the_lane() {
         use crate::view_models::lead_status::sample;
         use otaq_core::project_agents::lead::LeadStatus;
 
@@ -1863,12 +1860,33 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        let track = &board.strip.expect("a track").tracks[0];
-        assert_eq!(track.lead.as_ref().unwrap().short, "checking the plan");
+        assert!(board.lanes.is_none(), "Lanes: None");
+        let lanes = ProjectFacts {
+            view: view(ViewPrefs {
+                lanes: otaq_core::board::settings::Lanes::Epic,
+                ..ViewPrefs::default()
+            }),
+            ..with
+        };
+        let board = page(
+            &tickets,
+            &lanes,
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
+        let lane = &board.lanes.expect("lanes")[0];
+        assert_eq!(
+            lane.head.lead.as_ref().unwrap().full,
+            "Search lead · checking the plan"
+        );
     }
 
+    /// EPL-01: the "Epics in flight" strip is gone. While SHOP-45 is a card its children are its rows; once
+    /// SHOP-45.1 is queued, SHOP-45.2 left in Backlog is a card of its own that names its epic, and no epic card
+    /// is left.
     #[test]
-    fn the_page_carries_the_strip() {
+    fn in_flight_a_backlog_child_is_a_card_naming_its_epic() {
         let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
         epic.kind = Kind::Epic;
         let child = |key: &str, status| {
@@ -1889,7 +1907,8 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert_eq!(board.strip, None);
+        let backlog: Vec<&str> = board.columns[0].cards.iter().map(BoardCard::key).collect();
+        assert_eq!(backlog, ["SHOP-45"]);
 
         tickets[1].status = Status::Queued;
         tickets[1].place = otaq_core::domain::Place::Waiting(None);
@@ -1901,40 +1920,14 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        let strip = board.strip.clone().expect("a track");
-        assert_eq!(strip.title, "Epics in flight · 1");
-        let [track] = strip.tracks.as_slice() else {
-            panic!("one track: {:?}", strip.tracks)
+        let backlog: Vec<&str> = board.columns[0].cards.iter().map(BoardCard::key).collect();
+        assert_eq!(backlog, ["SHOP-45.2"]);
+        let BoardCard::Ticket { card, .. } = &board.columns[0].cards[0] else {
+            panic!("a ticket card")
         };
-        assert_eq!(track.key, "SHOP-45");
-        let stations: Vec<(ColumnId, Vec<&str>)> = track
-            .stations
-            .iter()
-            .map(|s| {
-                (
-                    s.column.clone(),
-                    s.stops.iter().map(|s| s.key.as_str()).collect(),
-                )
-            })
-            .collect();
-        let expected: Vec<(ColumnId, Vec<&str>)> = board.columns[1..]
-            .iter()
-            .map(|c| {
-                let keys = if c.id == ColumnId::READY_FOR_DEV {
-                    vec!["SHOP-45.1"]
-                } else {
-                    vec![]
-                };
-                (c.id.clone(), keys)
-            })
-            .collect();
-        assert_eq!(stations, expected);
-        assert_eq!(track.not_queued[0].key, "SHOP-45.2");
+        assert_eq!(card.epic.as_deref(), Some("Search"));
         let json = serde_json::to_value(&board).unwrap();
-        assert_eq!(
-            json["strip"]["tracks"][0]["stations"][0]["column"],
-            "ready_for_dev"
-        );
+        assert!(json.get("strip").is_none());
     }
 
     /// SHL-06, FLW-01: six columns in order (Validate its own); Review holds Ready for Review and Approved as two
@@ -2529,10 +2522,10 @@ mod tests {
         );
     }
 
-    /// SHL-01 on the page: Done opens from 1360 px of board width; the strip's Done station is a check while Done
-    /// is the rail.
+    /// SHL-01, EPL-01 on the page: Done opened or folded; an epic's lane cells follow the columns, one per column,
+    /// and a folded column's cell is empty.
     #[test]
-    fn done_opens_at_1360_and_the_strip_follows() {
+    fn lane_cells_follow_dones_fold() {
         let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
         epic.kind = Kind::Epic;
         let child = |key: &str, status| {
@@ -2547,36 +2540,45 @@ mod tests {
             child("SHOP-45.2", Status::WaitingForYou),
             child("SHOP-45.3", Status::Working),
         ];
+        let lanes = |folded_columns: Vec<String>| ViewPrefs {
+            lanes: otaq_core::board::settings::Lanes::Epic,
+            folded_columns,
+            ..ViewPrefs::default()
+        };
+        let cells = |p: &BoardPage| -> Vec<(ColumnId, usize)> {
+            p.lanes.as_ref().unwrap()[0]
+                .cells
+                .iter()
+                .map(|c| (c.column.clone(), c.cards.len()))
+                .collect()
+        };
         let open = page(
             &tickets,
-            &facts(),
+            &ProjectFacts {
+                view: view(lanes(Vec::new())),
+                ..facts()
+            },
             &params(1360.),
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
         assert!(!open.columns[5].collapsed);
-        let stations = |p: &BoardPage| -> Vec<(ColumnId, Option<IconName>, usize)> {
-            p.strip.as_ref().unwrap().tracks[0]
-                .stations
-                .iter()
-                .map(|s| (s.column.clone(), s.check, s.stops.len()))
-                .collect()
-        };
         assert_eq!(
-            stations(&open),
+            cells(&open),
             [
-                (ColumnId::READY_FOR_DEV, None, 0),
-                (ColumnId::DEV, None, 1),
-                (ColumnId::new("validate"), None, 0),
-                (ColumnId::REVIEW, None, 1),
-                (ColumnId::DONE, None, 1),
+                (ColumnId::BACKLOG, 0),
+                (ColumnId::READY_FOR_DEV, 0),
+                (ColumnId::DEV, 1),
+                (ColumnId::new("validate"), 0),
+                (ColumnId::REVIEW, 1),
+                (ColumnId::DONE, 1),
             ],
-            "one Review stop"
+            "one cell per column"
         );
         let folded = page(
             &tickets,
             &ProjectFacts {
-                view: view(ViewPrefs::default()),
+                view: view(lanes(vec!["done".into()])),
                 ..facts()
             },
             &params(1360.),
@@ -2584,10 +2586,7 @@ mod tests {
             &KeyLabels::base(Platform::Mac),
         );
         assert!(folded.columns[5].collapsed);
-        assert_eq!(
-            stations(&folded)[4],
-            (ColumnId::DONE, Some(IconName::CircleCheck), 1)
-        );
+        assert_eq!(cells(&folded)[5], (ColumnId::DONE, 0));
     }
 
     #[test]
@@ -2886,10 +2885,10 @@ mod tests {
         );
     }
 
-    /// State 10 (d0066): a child card taken out of Ready for Dev goes back to Backlog without a dialog and shows as
-    /// a "not queued" chip on its track, which stays while SHOP-45.1 runs.
+    /// State 10 (d0066), EPL-01: a child card taken out of Ready for Dev goes back to Backlog without a dialog
+    /// and is a Backlog card naming its epic while SHOP-45.1 runs.
     #[test]
-    fn a_child_card_taken_out_of_the_queue_becomes_a_chip() {
+    fn a_child_card_taken_out_of_the_queue_is_a_backlog_card() {
         let mut epic = ticket("SHOP-45", "Search", Status::Backlog);
         epic.kind = Kind::Epic;
         let child = |key: &str, status| {
@@ -2916,14 +2915,8 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(board.columns[0].cards.is_empty(), "no Backlog card");
-        let strip = board.strip.expect("the track stays");
-        let chips: Vec<&str> = strip.tracks[0]
-            .not_queued
-            .iter()
-            .map(|c| c.key.as_str())
-            .collect();
-        assert_eq!(chips, ["SHOP-45.2"]);
+        let backlog: Vec<&str> = board.columns[0].cards.iter().map(BoardCard::key).collect();
+        assert_eq!(backlog, ["SHOP-45.2"]);
     }
 
     #[test]

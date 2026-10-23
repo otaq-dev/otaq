@@ -7,12 +7,12 @@
 import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
+import type { BoardLane } from "../../generated/BoardLane";
 import type { BoardScrollChip } from "../../generated/BoardScrollChip";
 import type { BoardTicketParams } from "../../generated/BoardTicketParams";
 import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DragVerdict } from "../../generated/DragVerdict";
 import type { EpicCardView } from "../../generated/EpicCardView";
-import type { EpicTrack } from "../../generated/EpicTrack";
 
 /** The two columns every flow has before its stages, by their fixed ids (STG-08, d0108): Backlog, and Ready for Dev,
  * the wait before the first Agent stage. Queue and take back drop there. */
@@ -89,7 +89,7 @@ export interface DragCallbacks {
 }
 
 export interface Drag {
-  /** The button went down on a card. With `clicks` false a short press is no click (a track's name has its own). */
+  /** The button went down on a card (or a lane head). With `clicks` false a short press is no click. */
   press: (key: string, x: number, y: number, clicks?: boolean) => void;
   /** The pointer moved; `spans` measures the drop targets once, when the press turns into a drag. Whether a pointer
    * drag is on (the caller then moves the lifted card to the pointer). */
@@ -181,31 +181,27 @@ export function createDrag(ask: Ask, callbacks: DragCallbacks): Drag {
   };
 }
 
-/** A dragged epic track, by its name (EPC-14): the lifted handle draws its name and External ID. */
-export function liftedTrack(key: string, tracks: readonly EpicTrack[]): EpicTrack | null {
-  return tracks.find((t) => t.key === key) ?? null;
+/** An epic dragged by its lane's head (EPL-01, EPC-14): the lifted handle draws the lane's name and detail. */
+export function liftedLane(key: string, lanes: readonly BoardLane[]): BoardLane | null {
+  return lanes.find((l) => l.epic === key) ?? null;
 }
 
-/** A dragged child that is no card (EPC-12): a row of the epic card (with its title) or a "not queued" chip. */
+/** A dragged child that is no card (EPC-12): a row of the epic card, with its title. */
 export interface LiftedRow {
   key: string;
-  title: string | null;
+  title: string;
 }
 
 /**
- * What the lifted ghost draws for `key` when it is no card on the board: a row of one of the `epics` cards, or a
- * chip on one of the `tracks`; `null` for anything else (a card draws itself).
+ * What the lifted ghost draws for `key` when it is no card on the board: a row of one of the `epics` cards; `null`
+ * for anything else (a card draws itself).
  */
-export function liftedRow(
-  key: string,
-  epics: readonly EpicCardView[],
-  tracks: readonly EpicTrack[],
-): LiftedRow | null {
+export function liftedRow(key: string, epics: readonly EpicCardView[]): LiftedRow | null {
   for (const epic of epics) {
     const row = epic.children.find((c) => c.key === key && c.draggable);
     if (row) return { key, title: row.title };
   }
-  return tracks.some((t) => t.not_queued.some((c) => c.key === key)) ? { key, title: null } : null;
+  return null;
 }
 
 /** `"{n} above"` with `n` filled in. */

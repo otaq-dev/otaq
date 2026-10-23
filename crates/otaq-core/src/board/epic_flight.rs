@@ -2,10 +2,11 @@
 //! the queue and take-back rules read.
 //!
 //! The epic moves as one thing: a **card** in Backlog before it starts (its children are rows inside it), a
-//! **track** in the "Epics in flight" strip once a child is queued, and a **delivery card** in Ready for Review,
-//! Approved or Done when every child is done (EPC-04). [`epic_place`] decides which, from the epic and its children
-//! only, so the view models can call it without the database. The queue mode is stored on the epic: `Whole` lets
-//! new children join the queue, `Single` keeps them "not queued" (EPC-13).
+//! **track** once a child is queued (in flight: its children are cards of their own, and with Lanes: Epic the epic
+//! is a lane, EPL-01), and a **delivery card** in Ready for Review, Approved or Done when every child is done
+//! (EPC-04). [`epic_place`] decides which, from the epic and its children only, so the view models can call it
+//! without the database. The queue mode is stored on the epic: `Whole` lets new children join the queue, `Single`
+//! keeps them "not queued" (EPC-13).
 //!
 //! **On stages** (STG-11, d0108 rule 7): the groups below read the child's place and its status's set (the kind of
 //! the stage it is in), not a board column. An epic skips the Agent and Check stages: it waits in Backlog for its
@@ -68,7 +69,8 @@ pub enum EpicPlace {
     /// A card in Backlog with its children as rows: nothing is active, and either nothing ever started or a child
     /// is Parked (after Park all, or a single Park).
     Card,
-    /// A track in the "Epics in flight" strip, until the epic reaches Ready for Review.
+    /// In flight (a track): its children are on the board as cards (with Lanes: Epic, in its lane, EPL-01), until
+    /// the epic reaches Ready for Review.
     Track,
     /// The epic itself is in Ready for Review, Approved or Done (EPC-04): its delivery card.
     Delivery,

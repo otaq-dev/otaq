@@ -11,10 +11,11 @@
 //! replaces the long-flow folding and the stage strip; a column is folded ([`is_folded`]) from its ⋯ or by Fold empty
 //! columns (the project's view preferences), Done at first.
 //!
-//! Each child is on the board exactly once (EPC-11, d0080): an epic is a card in Backlog only in its Card place
-//! and a delivery card in Review / Done; in its Track place the strip draws it instead. Epic children never show
-//! as cards in Backlog: they are rows of the epic card, or "not queued" stops on its track. In Done an epic's
-//! merged children fold into one line (EPC-16, [`DoneFold`]); its closed children stay cards.
+//! Each child is on the board exactly once (EPC-11, d0080, EPL-01): an epic is a card in Backlog only in its Card
+//! place and a delivery card in Review / Done; in flight its children are its cards, each naming the epic (and with
+//! Lanes: Epic they sit in its lane, `lanes.rs`). An epic child in Backlog is a row of the epic card while the epic
+//! is one, else a card of its own. In Done an epic's merged children fold into one line (EPC-16, [`DoneFold`]); its
+//! closed children stay cards.
 
 use otaq_core::agents::{Agent, AgentList, AgentModel};
 use otaq_core::board::epic_flight::{EpicPlace, REVIEW_EPIC, children_of, epic_place};
@@ -394,20 +395,27 @@ pub struct BoardInput<'a> {
 /// a stage it was dragged or moved into; Ready for Dev's says "starts next" (`s24-07`).
 pub const KEPT_START: &str = "Paused \u{b7} starts when you resume";
 
-/// An epic waiting at the implicit Review epic stop (a flow with no human check, d0108 rule 7): its track shows it
-/// (FLW-19, Q273), so it is no card.
+/// An epic waiting at the implicit Review epic stop (a flow with no human check, d0108 rule 7, Q273): a card in the
+/// Delivery's column, where the user passes it.
 pub fn at_review_epic(ticket: &Ticket) -> bool {
     ticket.kind == Kind::Epic && ticket.place.is_in(REVIEW_EPIC)
 }
 
-/// Whether the ticket is a card in its column (EPC-11): an epic only in its Card or Delivery place (and not at the
-/// Review epic stop its track shows), an epic child anywhere but Backlog. `all` is the ticket's project.
+/// Whether the ticket is a card in its column (EPC-11, EPL-01): an epic in its Card or Delivery place (in flight it
+/// is its children's cards and, with Lanes: Epic, its lane); an epic child anywhere but in Backlog while its epic is
+/// a card (then it is one of the card's rows). `all` is the ticket's project.
 pub fn is_card(ticket: &Ticket, all: &[Ticket]) -> bool {
     if ticket.kind == Kind::Epic {
-        epic_place(ticket, all) != EpicPlace::Track && !at_review_epic(ticket)
-    } else {
-        ticket.epic.is_none() || !ticket.place.is_backlog()
+        return epic_place(ticket, all) != EpicPlace::Track;
     }
+    let Some(epic) = ticket.epic.as_ref() else {
+        return true;
+    };
+    !ticket.place.is_backlog()
+        || all
+            .iter()
+            .find(|t| &t.key == epic)
+            .is_none_or(|e| epic_place(e, all) != EpicPlace::Card)
 }
 
 /// One state's cards, in its order, with what its count counts.
@@ -1099,22 +1107,23 @@ mod tests {
         no_child_card_in_backlog(&columns, &tickets);
     }
 
-    /// EPC-11, EPC-12: SHOP-45.1 queued makes the epic a track: no epic card, 45.1 in Ready for Dev, 45.2 nowhere
-    /// in Backlog (a "not queued" stop on the track). Backlog counts what it shows.
+    /// EPC-11, EPC-12, EPL-01: SHOP-45.1 queued puts the epic in flight: no epic card, 45.1 in Ready for Dev, 45.2
+    /// a Backlog card of its own (the "Epics in flight" strip and its "not queued" stops are gone). Backlog counts
+    /// what it shows.
     #[test]
-    fn a_queued_child_makes_the_epic_a_track() {
+    fn a_queued_child_puts_the_epic_in_flight() {
         let tickets = search([Status::Queued, Status::Backlog]);
         let columns = build(&input(&tickets, None));
-        assert_eq!(column_keys(&columns[0]), ["SHOP-51"]);
-        assert_eq!(columns[0].count, "1");
+        assert_eq!(column_keys(&columns[0]), ["SHOP-45.2", "SHOP-51"]);
+        assert_eq!(columns[0].count, "2");
         assert_eq!(column_keys(&columns[1]), ["SHOP-45.1"]);
         assert_eq!(columns[1].count, "1");
-        assert!(columns.iter().all(|c| {
-            !column_keys(c)
+        assert!(
+            columns
                 .iter()
-                .any(|k| k == "SHOP-45" || k == "SHOP-45.2")
-        }));
-        no_child_card_in_backlog(&columns, &tickets);
+                .all(|c| !column_keys(c).iter().any(|k| k == "SHOP-45")),
+            "no epic card"
+        );
 
         // Running children are cards as usual; a merged one is in Done.
         let tickets = search([Status::Merged, Status::Working]);
@@ -1123,11 +1132,10 @@ mod tests {
         assert_eq!(column_keys(&columns[2]), ["SHOP-45.2"]);
         assert_eq!(column_keys(&columns[5]), ["SHOP-45.1"]);
 
-        // SHOP-45.1 merged and SHOP-45.2 taken back: the track stays, 45.2 is not a Backlog card.
+        // SHOP-45.1 merged and SHOP-45.2 taken back: still in flight, 45.2 is a Backlog card.
         let tickets = search([Status::Merged, Status::Backlog]);
         let columns = build(&input(&tickets, None));
-        assert_eq!(column_keys(&columns[0]), ["SHOP-51"]);
-        no_child_card_in_backlog(&columns, &tickets);
+        assert_eq!(column_keys(&columns[0]), ["SHOP-45.2", "SHOP-51"]);
     }
 
     /// EPC-14: after Park all the epic is a card again, its rows "Parked · has work" and draggable.
@@ -1854,10 +1862,10 @@ flow:
         );
     }
 
-    /// FLW-19, Q273: an epic of a flow with no human check, done with its children, waits at Review epic on its
-    /// track, not as a card.
+    /// FLW-19, Q273, EPL-01: an epic of a flow with no human check, done with its children, waits at Review epic as
+    /// its card in the Delivery's column (the "Epics in flight" strip that showed it is gone).
     #[test]
-    fn an_epic_at_review_epic_is_on_its_track_not_a_card() {
+    fn an_epic_at_review_epic_is_a_card_in_the_deliverys_column() {
         let mut flow = crate::view_models::flow_columns::every_kind();
         flow.stages.retain(|s| !s.is_human_check());
         let mut epic = ticket("SHOP-12", "Plugin API", Status::WaitingForYou);
@@ -1874,30 +1882,11 @@ flow:
             flow: &flow,
             ..input(&tickets, None)
         });
+        let ship = columns.iter().find(|c| c.id.as_str() == "ship").unwrap();
         assert!(
-            columns
-                .iter()
-                .all(|c| !column_keys(c).contains(&"SHOP-12".to_owned())),
-            "no epic card"
+            column_keys(ship).contains(&"SHOP-12".to_owned()),
+            "its card"
         );
-        let strip =
-            crate::view_models::epic_strip::Strip::from(&tickets, &flow).expect("its track");
-        let track = &strip.tracks[0];
-        let ship = track
-            .stations
-            .iter()
-            .find(|s| s.column.as_str() == "ship")
-            .unwrap();
-        let first = &ship.stops[0];
-        assert_eq!(
-            (first.key.as_str(), first.label.as_str(), first.icon),
-            ("SHOP-12", "Review epic", IconName::UserCheck)
-        );
-        assert_eq!(
-            first.state,
-            crate::view_models::epic_strip::StopState::InReview
-        );
-        assert_eq!(first.tooltip, "SHOP-12 Plugin API · Review epic");
 
         // On the default flow the epic waits in Review as its card, as today.
         tickets[0].place = Place::stage_of("review");

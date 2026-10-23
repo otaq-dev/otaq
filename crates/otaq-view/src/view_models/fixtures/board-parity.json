@@ -2953,6 +2953,7 @@
         "empty": null,
         "focus": null,
         "folded_width": 52.0,
+        "lanes": null,
         "list_placeholder": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -2978,7 +2979,6 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
-        "strip": null,
         "toolbar": {
           "all_tickets": "All tickets",
           "group_by": null,
@@ -4093,6 +4093,7 @@
         "empty": null,
         "focus": null,
         "folded_width": 52.0,
+        "lanes": null,
         "list_placeholder": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -4118,7 +4119,6 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
-        "strip": null,
         "toolbar": {
           "all_tickets": "All tickets",
           "group_by": null,
@@ -5233,6 +5233,7 @@
         "empty": null,
         "focus": null,
         "folded_width": 52.0,
+        "lanes": null,
         "list_placeholder": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -5258,7 +5259,6 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
-        "strip": null,
         "toolbar": {
           "all_tickets": "All tickets",
           "group_by": null,
@@ -5673,6 +5673,7 @@
         "empty": null,
         "focus": null,
         "folded_width": 52.0,
+        "lanes": null,
         "list_placeholder": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -5698,7 +5699,6 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
-        "strip": null,
         "toolbar": {
           "all_tickets": "All tickets",
           "group_by": null,
@@ -6042,6 +6042,7 @@
         "empty": null,
         "focus": null,
         "folded_width": 52.0,
+        "lanes": null,
         "list_placeholder": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -6067,7 +6068,6 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
-        "strip": null,
         "toolbar": {
           "all_tickets": "All tickets",
           "group_by": null,
@@ -6411,6 +6411,7 @@
         "empty": null,
         "focus": null,
         "folded_width": 52.0,
+        "lanes": null,
         "list_placeholder": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -6436,7 +6437,6 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
-        "strip": null,
         "toolbar": {
           "all_tickets": "All tickets",
           "group_by": null,
@@ -7532,6 +7532,7 @@
         "empty": null,
         "focus": null,
         "folded_width": 52.0,
+        "lanes": null,
         "list_placeholder": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -7556,87 +7557,6 @@
         "scroll_chip": {
           "above": "{n} above",
           "need_you": "{n} need you"
-        },
-        "strip": {
-          "folded": "Epics in flight 1",
-          "hint": "Hover a ticket to find its card · Click an epic name to focus on it",
-          "needs_you": null,
-          "title": "Epics in flight · 1",
-          "tracks": [
-            {
-              "count": "1/2",
-              "external_id": null,
-              "key": "NOTE-10",
-              "lead": null,
-              "lead_asks": false,
-              "name": "Sharing",
-              "needs_you": false,
-              "not_queued": [],
-              "pinned": false,
-              "segments": [
-                "merged",
-                "working"
-              ],
-              "stations": [
-                {
-                  "check": null,
-                  "column": "ready_for_dev",
-                  "merged": null,
-                  "stops": []
-                },
-                {
-                  "check": null,
-                  "column": "dev",
-                  "merged": null,
-                  "stops": [
-                    {
-                      "icon": "activity",
-                      "key": "NOTE-10.2",
-                      "label": "10.2",
-                      "needs_you": false,
-                      "new": null,
-                      "new_short": null,
-                      "note": null,
-                      "short_label": "10.2",
-                      "state": "working",
-                      "tooltip": "NOTE-10.2 Share settings · Working"
-                    }
-                  ]
-                },
-                {
-                  "check": null,
-                  "column": "validate",
-                  "merged": null,
-                  "stops": []
-                },
-                {
-                  "check": null,
-                  "column": "review",
-                  "merged": null,
-                  "stops": []
-                },
-                {
-                  "check": "circle-check",
-                  "column": "done",
-                  "merged": "1 merged",
-                  "stops": [
-                    {
-                      "icon": "check",
-                      "key": "NOTE-10.1",
-                      "label": "10.1",
-                      "needs_you": false,
-                      "new": null,
-                      "new_short": null,
-                      "note": null,
-                      "short_label": "10.1",
-                      "state": "merged",
-                      "tooltip": "NOTE-10.1 Share link · Merged"
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
         },
         "toolbar": {
           "all_tickets": "All tickets",
@@ -8217,6 +8137,7 @@
         "empty": null,
         "focus": null,
         "folded_width": 52.0,
+        "lanes": null,
         "list_placeholder": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -8241,87 +8162,6 @@
         "scroll_chip": {
           "above": "{n} above",
           "need_you": "{n} need you"
-        },
-        "strip": {
-          "folded": "Epics in flight 1",
-          "hint": "Hover a ticket to find its card · Click an epic name to focus on it",
-          "needs_you": null,
-          "title": "Epics in flight · 1",
-          "tracks": [
-            {
-              "count": "1/2",
-              "external_id": null,
-              "key": "NOTE-10",
-              "lead": null,
-              "lead_asks": false,
-              "name": "Sharing",
-              "needs_you": false,
-              "not_queued": [],
-              "pinned": false,
-              "segments": [
-                "merged",
-                "working"
-              ],
-              "stations": [
-                {
-                  "check": null,
-                  "column": "ready_for_dev",
-                  "merged": null,
-                  "stops": []
-                },
-                {
-                  "check": null,
-                  "column": "dev",
-                  "merged": null,
-                  "stops": [
-                    {
-                      "icon": "activity",
-                      "key": "NOTE-10.2",
-                      "label": "10.2",
-                      "needs_you": false,
-                      "new": null,
-                      "new_short": null,
-                      "note": null,
-                      "short_label": "10.2",
-                      "state": "working",
-                      "tooltip": "NOTE-10.2 Share settings · Working"
-                    }
-                  ]
-                },
-                {
-                  "check": null,
-                  "column": "validate",
-                  "merged": null,
-                  "stops": []
-                },
-                {
-                  "check": null,
-                  "column": "review",
-                  "merged": null,
-                  "stops": []
-                },
-                {
-                  "check": "circle-check",
-                  "column": "done",
-                  "merged": "1 merged",
-                  "stops": [
-                    {
-                      "icon": "check",
-                      "key": "NOTE-10.1",
-                      "label": "10.1",
-                      "needs_you": false,
-                      "new": null,
-                      "new_short": null,
-                      "note": null,
-                      "short_label": "10.1",
-                      "state": "merged",
-                      "tooltip": "NOTE-10.1 Share link · Merged"
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
         },
         "toolbar": {
           "all_tickets": "All tickets",
@@ -8902,6 +8742,7 @@
         "empty": null,
         "focus": null,
         "folded_width": 52.0,
+        "lanes": null,
         "list_placeholder": null,
         "min_column_width": 180.0,
         "more_stages": {
@@ -8926,87 +8767,6 @@
         "scroll_chip": {
           "above": "{n} above",
           "need_you": "{n} need you"
-        },
-        "strip": {
-          "folded": "Epics in flight 1",
-          "hint": "Hover a ticket to find its card · Click an epic name to focus on it",
-          "needs_you": null,
-          "title": "Epics in flight · 1",
-          "tracks": [
-            {
-              "count": "1/2",
-              "external_id": null,
-              "key": "NOTE-10",
-              "lead": null,
-              "lead_asks": false,
-              "name": "Sharing",
-              "needs_you": false,
-              "not_queued": [],
-              "pinned": false,
-              "segments": [
-                "merged",
-                "working"
-              ],
-              "stations": [
-                {
-                  "check": null,
-                  "column": "ready_for_dev",
-                  "merged": null,
-                  "stops": []
-                },
-                {
-                  "check": null,
-                  "column": "dev",
-                  "merged": null,
-                  "stops": [
-                    {
-                      "icon": "activity",
-                      "key": "NOTE-10.2",
-                      "label": "10.2",
-                      "needs_you": false,
-                      "new": null,
-                      "new_short": null,
-                      "note": null,
-                      "short_label": "10.2",
-                      "state": "working",
-                      "tooltip": "NOTE-10.2 Share settings · Working"
-                    }
-                  ]
-                },
-                {
-                  "check": null,
-                  "column": "validate",
-                  "merged": null,
-                  "stops": []
-                },
-                {
-                  "check": null,
-                  "column": "review",
-                  "merged": null,
-                  "stops": []
-                },
-                {
-                  "check": "circle-check",
-                  "column": "done",
-                  "merged": "1 merged",
-                  "stops": [
-                    {
-                      "icon": "check",
-                      "key": "NOTE-10.1",
-                      "label": "10.1",
-                      "needs_you": false,
-                      "new": null,
-                      "new_short": null,
-                      "note": null,
-                      "short_label": "10.1",
-                      "state": "merged",
-                      "tooltip": "NOTE-10.1 Share link · Merged"
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
         },
         "toolbar": {
           "all_tickets": "All tickets",

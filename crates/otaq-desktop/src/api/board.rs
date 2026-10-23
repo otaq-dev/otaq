@@ -28,13 +28,13 @@
 //! sends `epic.take_back` when it unqueues waiting children, or answers with the Park-all confirmation when every
 //! child started, whose button is `board.park_all` (`epic.take_back` confirmed).
 //!
-//! T-0274 (EPC-18, EPC-17; d0080, Q55): `board.focus` puts the epic of a card or track in the filter (its
-//! `epic:` token, which dims the other cards) or takes it out (Esc); the menu of an epic, its card or its track, has
-//! the epic's own items.
+//! T-0274 (EPC-18, EPC-17; d0080, Q55): `board.focus` puts the epic of a card or lane in the filter (its
+//! `epic:` token, which dims the other cards) or takes it out (Esc); the menu of an epic, its card or its lane head,
+//! has the epic's own items.
 //!
 //! T-0289 (LEAD-11, LEAD-02, LEAD-12; d0083): `board.view` reads the project's epic leads (`lead.list`) for the
-//! Lead row on epic cards and the lead's line on tracks; `board.lead_open` is the card's Open lead (`lead.open`)
-//! and `board.lead_resume` the Resume of an ended lead (`lead.resume`).
+//! Lead row on epic cards and the lead on lane heads (EPL-01, T-0462); `board.lead_open` is the card's Open lead
+//! (`lead.open`) and `board.lead_resume` the Resume of an ended lead (`lead.resume`).
 //!
 //! T-0460 (SHB-05, BRD-01…BRD-04; d0113): `board.view` reads the project's view preferences from the service
 //! (`ProjectSettings.view`: Board or List, lanes, folds) and the page changes one at a time with `board.set_view`
@@ -1304,7 +1304,13 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(board["strip"], Value::Null, "the card again");
+        let backlog: Vec<&str> = board["columns"][0]["cards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["card"]["key"].as_str().unwrap())
+            .collect();
+        assert_eq!(backlog, [epic.as_str()], "the card again");
 
         // Nothing to take back: Park all is refused.
         assert!(

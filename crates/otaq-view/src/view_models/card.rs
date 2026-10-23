@@ -74,7 +74,7 @@ pub const VALIDATOR_ASKS: &str = "Validator asks";
 pub struct CardExtras {
     /// The project's base branch; a ticket on another base says so ("on release/2.3").
     pub project_base: Option<String>,
-    /// The epic child's sleeve (EPC-09): its epic's name, its position and the epic's pin.
+    /// The epic child's name line (EPC-09, BRD-03): its epic's name and the epic's pin.
     pub sleeve: Option<Sleeve>,
     /// Queued: what it waits for ("waits for SHOP-20 to merge", T-0077, T-0083).
     pub waits_for: Option<String>,
@@ -233,33 +233,23 @@ impl CardExtras {
     }
 }
 
-/// The violet band on top of an epic child's card (EPC-09, d0080; *01 · Components → Epic Sleeve v2*): the epic's
-/// name and the child's position among all its epic's children in key order ("Wishlist · 2 of 4"). A pinned epic
-/// shows a small pin here instead of a pin on each child (EPC-17). No sleeve: a standalone ticket. `CardSleeve` on
-/// the page.
+/// What an epic child's card says of its epic (EPC-09, BRD-03): the epic's name on the key's row ("Wishlist"); the
+/// "2 of 4" band is gone (EPL-01). A pinned epic's children follow its pin (EPC-17). No sleeve: a standalone ticket.
+/// `CardSleeve` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardSleeve")]
 pub struct Sleeve {
     pub epic_key: String,
     pub name: String,
-    /// "2 of 4"; never truncated (*1280 × 800 → Sleeve*).
-    pub position: String,
     pub pinned: bool,
 }
 
-/// The sleeve of `ticket` when it is an epic child; `all` is its project (its epic and every sibling).
+/// The sleeve of `ticket` when it is an epic child; `all` is its project (its epic).
 pub fn sleeve(ticket: &Ticket, all: &[Ticket]) -> Option<Sleeve> {
     let epic = all.iter().find(|t| Some(&t.key) == ticket.epic.as_ref())?;
-    let mut children: Vec<&TicketKey> = otaq_core::board::epic_flight::children_of(epic, all)
-        .into_iter()
-        .map(|t| &t.key)
-        .collect();
-    children.sort();
-    let place = children.iter().position(|k| **k == ticket.key)? + 1;
     Some(Sleeve {
         epic_key: epic.key.to_string(),
         name: epic.title.clone(),
-        position: format!("{place} of {}", children.len()),
         pinned: epic.flags.is_pinned(),
     })
 }
@@ -4553,9 +4543,9 @@ mod tests {
         all.iter().find(|t| t.key.to_string() == key).unwrap()
     }
 
-    /// EPC-09 (*Epic Sleeve v2*): every child wears the sleeve with its place among its epic's children.
+    /// EPC-09, BRD-03: every child names its epic; the "2 of 4" band is gone (EPL-01).
     #[test]
-    fn the_sleeve_names_the_epic_and_the_childs_position() {
+    fn the_sleeve_names_the_epic() {
         let all = wishlist_project();
         let at = |key| super::sleeve(find(&all, key), &all);
         assert_eq!(
@@ -4563,16 +4553,10 @@ mod tests {
             Some(Sleeve {
                 epic_key: "SHOP-40".into(),
                 name: "Wishlist".into(),
-                position: "2 of 4".into(),
                 pinned: false,
             })
         );
-        assert_eq!(at("SHOP-40.1").unwrap().position, "1 of 4", "merged too");
-        assert_eq!(
-            at("SHOP-40.10").unwrap().position,
-            "4 of 4",
-            "40.10 after 40.3"
-        );
+        assert_eq!(at("SHOP-40.1").unwrap().name, "Wishlist", "merged too");
         assert_eq!(at("SHOP-51"), None, "a standalone ticket");
         assert_eq!(at("SHOP-40"), None, "the epic itself");
         let x = CardExtras {
@@ -4580,8 +4564,7 @@ mod tests {
             ..main_project()
         };
         let vm = CardViewModel::from(find(&all, "SHOP-40.2"), &x, NOW);
-        assert_eq!(vm.sleeve.unwrap().position, "2 of 4");
-        // The child inside the sleeve is a v2 card.
+        assert_eq!(vm.sleeve.unwrap().name, "Wishlist");
         assert_eq!(
             flag_of(&variant("Dev · epic child · asks you").1),
             Some("Asks you")

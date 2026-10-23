@@ -164,7 +164,7 @@ interface CardListProps {
   handlers: CardHandlers;
 }
 
-const CardList = memo(function CardList({
+export const CardList = memo(function CardList({
   cards,
   column,
   selected,
@@ -234,7 +234,7 @@ export function runsOf(cards: readonly BoardCard[], folds: readonly BoardDoneFol
   return runs;
 }
 
-function FoldLine({
+export function FoldLine({
   fold,
   open,
   chain,
@@ -297,7 +297,7 @@ export interface ColumnProps {
   element: (target: BoardDropTarget, el: HTMLElement | null) => void;
 }
 
-function verdictLook(verdict: DragVerdict | undefined): string | undefined {
+export function verdictLook(verdict: DragVerdict | undefined): string | undefined {
   return verdict === undefined || verdict.kind === "home" ? undefined : verdict.kind;
 }
 
@@ -362,7 +362,7 @@ export function iconInk(column: Pick<BoardColumn, "kind" | "quiet_icon">): strin
 
 /** A folded column (BRD-02, `s26-10`): a 52 px rail with its icon, count, a needs-you dot and its name; a click
  * unfolds it. It stays a drop target. */
-function Rail({
+export function Rail({
   column,
   members,
   onView,
@@ -397,7 +397,7 @@ function Rail({
 }
 
 /** Done folded (BRD-02, `s24-03`): "Done 4 →" under the last column; a click opens Done. It stays Done's drop target. */
-function DoneLink({
+export function DoneLink({
   line,
   onView,
   element,
@@ -421,7 +421,7 @@ function DoneLink({
 }
 
 /** The column's ⋯ (BRD-04), shown on hover: Fold this column (the flow's items come with the flow editor). */
-function ColumnMenu({ column, onView }: Pick<ColumnProps, "column" | "onView">) {
+export function ColumnMenu({ column, onView }: Pick<ColumnProps, "column" | "onView">) {
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   if (column.menu.length === 0) return null;
   return (
@@ -462,7 +462,7 @@ function ColumnMenu({ column, onView }: Pick<ColumnProps, "column" | "onView">) 
 }
 
 /** The header's icon, title (with who runs it on hover), count and folded stages. */
-function HeaderTitle({ column }: { column: BoardColumn }) {
+export function HeaderTitle({ column }: { column: BoardColumn }) {
   const title = <span className="board-column-title">{column.title}</span>;
   return (
     <>

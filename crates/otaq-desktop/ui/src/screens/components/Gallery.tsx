@@ -113,7 +113,7 @@ import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
 import { Column, type ColumnProps } from "../board/Column";
 import { Toolbar } from "../board/Toolbar";
-import { Strip } from "../board/strip/Strip";
+import { LaneHeadRow } from "../board/Lanes";
 import { AnswerBox as PanelAnswerBox } from "../panel/Panel";
 import { AskBarBody } from "../ask_bar/AskBar";
 import "../ask_bar/ask_bar.css";
@@ -1232,19 +1232,8 @@ function SourceSample() {
 
 const loadLeads = () => request("gallery.leads") as Promise<LeadGallery>;
 
-const NO_STRIP_HANDLERS = {
-  hover: () => undefined,
-  select: () => undefined,
-  name: () => undefined,
-  menu: () => undefined,
-  open: () => undefined,
-  press: () => undefined,
-  pressName: () => undefined,
-  queue: () => undefined,
-};
-
-/** *01 → Row · Lead Status (0083)*, *Row · Track Label with a lead (0083)* at 219 and 193 px, and *Row · Epic Card
- * with a lead (0083)* (T-0289): every form from `lead_status.rs`; clicks are only recorded. */
+/** *01 → Row · Lead Status (0083)*, the lane heads of Lanes: Epic (`s24-06`, T-0462) at 1440 and 1280, and *Row ·
+ * Epic Card with a lead (0083)* (T-0289): every form from `lead_status.rs` and `lanes.rs`; clicks are only recorded. */
 function Leads() {
   const { view, error } = useServiceView(loadLeads, []);
   const [picked, setPicked] = useState<string | null>(null);
@@ -1283,27 +1272,23 @@ function Leads() {
           </div>
         ))}
       </Section>
-      <Section title="01 · Epics on the board · Row · Track Label with a lead (0083) · 219 and 193 px">
-        {["219px", "193px"].map((width) => (
-          <div key={width} className="gallery-wrap" style={{ "--column-width": width } as CSSProperties}>
-            {view.tracks.map((cell) => (
-              <div key={cell.name} className="gallery-stack" style={{ width }}>
+      <Section title="24 · Epic lanes · lane heads (EPL-01, T-0462) · 1376 and 1216 px">
+        {["1376px", "1216px"].map((width) => (
+          <div key={width} className="gallery-stack board-lanes" style={{ width }}>
+            {view.lanes.map((cell) => (
+              <div key={cell.name} className="gallery-stack">
                 <Caption>{cell.name.toUpperCase()}</Caption>
-                <Strip
-                  strip={{
-                    title: "",
-                    needs_you: null,
-                    hint: "",
-                    folded: "",
-                    tracks: [cell.track],
-                  }}
-                  columns={[{ id: "backlog", collapsed: false }]}
-                  folded={false}
-                  onToggleFold={() => undefined}
-                  pulse={null}
-                  focus={null}
-                  handlers={NO_STRIP_HANDLERS}
-                />
+                <section className="board-lane" data-folded={cell.folded || undefined}>
+                  <LaneHeadRow
+                    head={cell.head}
+                    epic={cell.head.progress === null ? null : "SHOP-40"}
+                    folded={cell.folded}
+                    foldLabel={cell.folded ? "Unfold this lane" : "Fold this lane"}
+                    onFold={() => {
+                      setPicked(`${cell.name}: fold`);
+                    }}
+                  />
+                </section>
               </div>
             ))}
           </div>

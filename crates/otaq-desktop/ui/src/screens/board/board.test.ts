@@ -26,14 +26,12 @@ import {
   type DragState,
   fill,
   liftedRow,
-  liftedTrack,
   moveFocus,
   revealScroll,
   targetOrder,
 } from "./drag";
 import { agentOf, boardAgent, clearAgentFilter, escapeStep, showAgentOnBoard } from "./filter";
 import type { EpicCardView } from "../../generated/EpicCardView";
-import type { EpicTrack } from "../../generated/EpicTrack";
 import { board } from ".";
 import { rememberColumnScroll, scrollPlace } from "./prefs";
 
@@ -276,27 +274,14 @@ describe("dragging an epic's child out (T-0270)", () => {
     draggable,
   });
   const epic = { children: [row("SHOP-45.1", true), row("SHOP-45.2", false)] } as EpicCardView;
-  const track = {
-    not_queued: [
-      {
-        key: "SHOP-40.3",
-        label: "40.3",
-        state: "not_queued",
-        icon: "circle-dashed",
-        tooltip: "SHOP-40.3 · not queued",
-        action: "Queue",
-      },
-    ],
-  } as EpicTrack;
 
-  it("lifts a draggable row with its title, a chip with its key, and nothing else", () => {
-    expect(liftedRow("SHOP-45.1", [epic], [track])).toEqual({ key: "SHOP-45.1", title: "SHOP-45.1 title" });
-    expect(liftedRow("SHOP-40.3", [epic], [track])).toEqual({ key: "SHOP-40.3", title: null });
-    expect(liftedRow("SHOP-45.2", [epic], [track]), "not draggable").toBeNull();
-    expect(liftedRow("SHOP-24", [epic], [track]), "a card draws itself").toBeNull();
+  it("lifts a draggable row with its title, and nothing else", () => {
+    expect(liftedRow("SHOP-45.1", [epic])).toEqual({ key: "SHOP-45.1", title: "SHOP-45.1 title" });
+    expect(liftedRow("SHOP-45.2", [epic]), "not draggable").toBeNull();
+    expect(liftedRow("SHOP-24", [epic]), "a card draws itself").toBeNull();
   });
 
-  it("a chip's Queue button drops it on Ready for Dev", async () => {
+  it("a row dropped on Ready for Dev queues only that child", async () => {
     const asked: [string, unknown][] = [];
     const ask = (method: string, params?: unknown) => {
       asked.push([method, params]);
@@ -307,20 +292,8 @@ describe("dragging an epic's child out (T-0270)", () => {
   });
 });
 
-describe("dragging a track back (T-0271)", () => {
-  const track = {
-    key: "SHOP-45",
-    name: "Search",
-    external_id: "PAY-130",
-    not_queued: [],
-  } as unknown as EpicTrack;
-
-  it("lifts the track's handle for its epic only", () => {
-    expect(liftedTrack("SHOP-45", [track])?.name).toBe("Search");
-    expect(liftedTrack("SHOP-45.1", [track])).toBeNull();
-  });
-
-  it("a short press on the name is no drag click (the name keeps its own)", async () => {
+describe("an epic taken back (T-0271)", () => {
+  it("a press that isn't a click (`clicks` false) is no click; dragged, it drops like a card", async () => {
     const door = fakeDoor();
     const drag = createDrag(door.ask, { onState: () => undefined });
     drag.press("SHOP-45", 100, 100, false);

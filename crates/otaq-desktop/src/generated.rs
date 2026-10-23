@@ -284,10 +284,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Validation reports in History and Review, Create ticket from a note (T-0238); HistoryView writes the rest.
     otaq_view::view_models::validation_report::Review::export_all(&cfg)?;
     crate::api::CreateFromNoteParams::export_all(&cfg)?;
-    // The "Epics in flight" strip (T-0268): also writes its tracks, stations, stops, chips and stop states.
-    otaq_view::view_models::epic_strip::Strip::export_all(&cfg)?;
-    // The Lead Status gallery (T-0289); `LeadStatusView` itself comes with the epic card and the track.
+    // The Lead Status gallery (T-0289) with the lane heads (T-0462); `LeadStatusView` itself comes with the epic card.
     otaq_view::view_models::lead_status::Gallery::export_all(&cfg)?;
+    // The List grouped by Epic (EPL-02, T-0462): its groups, parent rows and their tracks.
+    otaq_view::view_models::lanes::ByEpic::export_all(&cfg)?;
     // The epic panel's Lead tab (T-0290): its view, body, changes and gallery.
     crate::api::LeadTabLoad::export_all(&cfg)?;
     crate::api::LeadTabParams::export_all(&cfg)?;

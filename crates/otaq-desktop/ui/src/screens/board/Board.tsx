@@ -14,14 +14,14 @@
 // the board's own background (`background.ts`: a column's empty area, the gaps, the room after the columns; OT-3),
 // unless that click closes an open menu or popover. "Show on board" in a Project agent's pane filters the board to its tickets
 // (`boardAgent`, d0087), with a chip whose ✕ (or Esc) clears it.
-// Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229). While an epic is in
-// flight the "Epics in flight" strip sits above the columns (`strip/`, T-0269). The epic card, one of its rows and a
-// "not queued" chip on a track are dragged the same way (EPC-12, T-0270): Rust answers what each queues, and the drop
-// sends `epic.queue`, whose outcome is the queue toast; a row or a chip lifts as a small row. A track is dragged by
-// its name (EPC-14, T-0271): onto Backlog it takes back, at once or after the Park-all confirmation. Clicking a
-// track's name or `g` `e` on a selected epic, child or track focuses the epic (EPC-18, T-0274): its `epic:` token goes in
-// the filter, the other cards, tracks and Done lines dim (Q55), the arrow keys walk only its cards, and Esc leaves.
-// A track's right click is its epic's menu.
+// Hovering (or selecting) a linked card highlights its chain (`chain.ts`, `ChainLayer`; T-0229). With Lanes: Epic
+// (EPL-01, `Lanes.tsx`) the columns' headers sit once on top and each epic has its lane across them, "No epic" last;
+// the "Epics in flight" strip is gone, and with Lanes: None an epic child's card names its epic. The epic card, one of
+// its rows and a lane's head are dragged the same way (EPC-12, EPC-14, T-0270, T-0271): Rust answers what each queues
+// or takes back, and the drop sends `board.drop`, whose outcome is the queue toast or the Park-all confirmation; a row
+// lifts as a small row, a lane head as its name. `g` `e` on a selected epic, child or lane head focuses the epic
+// (EPC-18, T-0274): its `epic:` token goes in the filter, the other cards, lanes and Done lines dim (Q55), the arrow
+// keys walk only its cards, and Esc leaves. A lane head's right click is its epic's menu.
 import {
   type CSSProperties,
   type KeyboardEvent,
@@ -49,6 +49,7 @@ import type { BoardColumnId } from "../../generated/BoardColumnId";
 import type { DragVerdict } from "../../generated/DragVerdict";
 import type { BoardDropParams } from "../../generated/BoardDropParams";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
+import type { BoardLane } from "../../generated/BoardLane";
 import type { BoardParams } from "../../generated/BoardParams";
 import type { BoardSetViewParams } from "../../generated/BoardSetViewParams";
 import type { BoardTicketParams } from "../../generated/BoardTicketParams";
@@ -57,7 +58,6 @@ import type { CardActionKind } from "../../generated/CardActionKind";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { NewToast } from "../../generated/NewToast";
-import type { EpicTrack } from "../../generated/EpicTrack";
 import type { ParkAllDialog } from "../../generated/ParkAllDialog";
 import type { ParkDialog } from "../../generated/ParkDialog";
 import type { ViewChange } from "../../generated/ViewChange";
@@ -77,15 +77,15 @@ import {
   createDrag,
   type DragState,
   type LiftedRow,
+  liftedLane,
   liftedRow,
-  liftedTrack,
   moveFocus,
-  READY_FOR_DEV,
   revealScroll,
   targetOrder,
   verdictOf,
 } from "./drag";
 import { EmptyBoard } from "./EmptyBoard";
+import { type LaneHandlers, Lanes, laneWalk } from "./Lanes";
 import { columnsAfter, moreText, nextScroll } from "./more";
 import { NoProjects } from "./NoProjects";
 import { Toolbar } from "./Toolbar";
@@ -100,9 +100,6 @@ import {
   requestSearchFocus,
 } from "./filter";
 import { rememberBoardScroll, rememberColumnScroll, scrollPlace } from "./prefs";
-import { stripFolded, stripFolds, toggleStripFold } from "./strip/fold";
-import { markCards, revealCard, type StripHover } from "./strip/highlight";
-import { Strip, type StripHandlers } from "./strip/Strip";
 
 const NO_SECTIONS: readonly string[] = [];
 
@@ -306,26 +303,26 @@ export function dropCard(
   );
 }
 
-/** A row of the epic card, or a "not queued" chip, while it is dragged out (*03 → epic flows 3 → 8 · Dragged row*). */
+/** A row of the epic card while it is dragged out (*03 → epic flows 3 → 8 · Dragged row*). */
 function LiftedChild({ row }: { row: LiftedRow }) {
   return (
     <div className="board-ghost-row">
       <Icon name="grip-vertical" size={12} />
       <span className="board-ghost-row-key">{row.key}</span>
-      {row.title !== null && <span className="board-ghost-row-title">{row.title}</span>}
+      <span className="board-ghost-row-title">{row.title}</span>
     </div>
   );
 }
 
-/** An epic's track while it is dragged by its name (*03 → epic flows 1 → 3 · Dragged track handle*). */
-function LiftedTrack({ track }: { track: EpicTrack }) {
+/** An epic while it is dragged by its lane's head (*03 → epic flows 1 → 3 · Dragged track handle*). */
+function LiftedLane({ lane }: { lane: BoardLane }) {
   return (
-    <div className="board-ghost-track">
-      <span className="board-ghost-track-icon">
+    <div className="board-ghost-lane">
+      <span className="board-ghost-lane-icon">
         <Icon name="layers" size={12} />
       </span>
-      <span className="board-ghost-track-name">{track.name}</span>
-      {track.external_id !== null && <span className="board-ghost-track-external">{track.external_id}</span>}
+      <span className="board-ghost-lane-name">{lane.head.name}</span>
+      <span className="board-ghost-lane-detail">{lane.head.detail}</span>
     </div>
   );
 }
@@ -388,12 +385,10 @@ function AgentChip({ label, clear, onClear }: { label: string; clear: string; on
 
 export function Board() {
   const { project, ticket: selected } = useSelection();
-  const folds = useStore(stripFolds);
   const filter = filterOf(useStore(boardFilter), project);
   const agent = agentOf(useStore(boardAgent), project);
   const [element, setElement] = useState<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
-  const [stripHover, setStripHover] = useState<StripHover>(null);
   const boardEl = useRef<HTMLDivElement | null>(null);
   const size = useSize(element);
   const tick = useTick(SIGNAL_REFRESH_MS);
@@ -614,10 +609,10 @@ export function Board() {
   }, [controller, focusOn, project]);
   useShortcut("close_panel", cancelDrag);
 
-  // `g` `e`: focus the epic of the track name with the keyboard, else of the selected card. A standalone ticket has
+  // `g` `e`: focus the epic of the lane head with the keyboard, else of the selected card. A standalone ticket has
   // none: Rust answers nothing and the filter stays.
   const focusSelected = useCallback(() => {
-    const name = document.activeElement?.closest<HTMLElement>(".strip-name[data-epic]");
+    const name = document.activeElement?.closest<HTMLElement>(".board-lane-head[data-epic]");
     const key = name?.dataset.epic ?? selected;
     if (key === null) return false;
     focusOn(key);
@@ -630,6 +625,10 @@ export function Board() {
   // The arrow keys walk the cards; with an epic focused, only its cards (EPC-18); never those of a folded section.
   const keys = useMemo(() => {
     const strong = view?.focus ? new Set(view.focus.keys) : null;
+    if (view?.lanes != null)
+      return laneWalk(view.columns, view.lanes).map((keys) =>
+        keys.filter((key) => strong === null || strong.has(key)),
+      );
     return (
       view?.columns.map((c) =>
         walkOf(c, foldedSections)
@@ -780,51 +779,27 @@ export function Board() {
     const epics = view.columns.flatMap((c) =>
       cardsOf(c).flatMap((card) => (card.kind === "epic" ? [card.card] : [])),
     );
-    return liftedRow(drag.key, epics, view.strip?.tracks ?? []);
+    return liftedRow(drag.key, epics);
   }, [drag, view, draggedCard]);
-  const draggedTrack = useMemo(
-    () =>
-      drag === null || !view || draggedCard !== null ? null : liftedTrack(drag.key, view.strip?.tracks ?? []),
+  const draggedLane = useMemo(
+    () => (drag === null || !view || draggedCard !== null ? null : liftedLane(drag.key, view.lanes ?? [])),
     [drag, view, draggedCard],
   );
 
-  // The strip's hover marks the cards (a stop's outline, a name's preview), again whenever the cards are redrawn.
-  const hasStrip = view?.strip != null;
-  useLayoutEffect(() => {
-    if (!element || !hasStrip || drag !== null) return;
-    return markCards(element, stripHover);
-  }, [element, stripHover, view, hasStrip, drag]);
-
-  const stripHandlers: StripHandlers = useMemo(
+  // A lane head is its epic (EPL-01): pressed, it may be dragged like the epic's card (a short press, or ↵, opens the
+  // epic); its right click is the epic's menu.
+  const laneHandlers: LaneHandlers = useMemo(
     () => ({
-      hover: (hover) => {
-        setStripHover(hover);
-        if (hover?.kind === "stop" && boardEl.current) revealCard(boardEl.current, hover.key);
-      },
-      select: (key) => {
-        openTicket(key);
-      },
-      // A click on the name focuses the epic (EPC-18); its drag stays `pressName`'s.
-      name: (epic) => {
-        focusOn(epic);
+      press: (epic, e) => {
+        controller.press(epic, e.clientX, e.clientY);
+        placeGhost(e.clientX, e.clientY);
       },
       menu: openMenu,
       open: (epic) => {
         openTicket(epic);
       },
-      press: (key, e) => {
-        controller.press(key, e.clientX, e.clientY);
-        placeGhost(e.clientX, e.clientY);
-      },
-      pressName: (epic, e) => {
-        controller.press(epic, e.clientX, e.clientY, false);
-        placeGhost(e.clientX, e.clientY);
-      },
-      queue: (key) => {
-        void dropCard(key, READY_FOR_DEV, showApprove);
-      },
     }),
-    [controller, placeGhost, showApprove, focusOn, openMenu],
+    [controller, placeGhost, openMenu],
   );
 
   // An epic's items in its menu do what the board does: a drop, and the focus.
@@ -869,7 +844,11 @@ export function Board() {
     if (!board) return null;
     const b = board.getBoundingClientRect();
     const pad = parseFloat(getComputedStyle(board).paddingLeft) || 0;
-    const spans = [...board.querySelectorAll<HTMLElement>(".board-columns > [data-column]")].map((el) => {
+    const spans = [
+      ...board.querySelectorAll<HTMLElement>(
+        ".board-columns > [data-column], .board-lane-headers > [data-column]",
+      ),
+    ].map((el) => {
       const r = el.getBoundingClientRect();
       return { left: r.left, right: r.right };
     });
@@ -962,19 +941,6 @@ export function Board() {
           background.press(e);
         }}
       >
-        {view?.strip && (
-          <Strip
-            strip={view.strip}
-            columns={view.columns}
-            folded={stripFolded(folds, project ?? "")}
-            onToggleFold={() => {
-              if (project !== null) toggleStripFold(project);
-            }}
-            pulse={hovered}
-            focus={focus?.epics ?? null}
-            handlers={stripHandlers}
-          />
-        )}
         {view?.agent_filter && (
           <AgentChip
             label={view.agent_filter.label}
@@ -984,34 +950,55 @@ export function Board() {
             }}
           />
         )}
-        <div className="board-columns">
-          {view?.columns.map((column) => (
-            <Column
-              key={`${project ?? ""}:${column.id}`}
-              column={column}
-              chipWords={view.scroll_chip}
-              verdict={drag ? verdictOf(drag.answer, column.id) : undefined}
-              dragging={drag !== null}
-              selected={selected}
-              chain={chain}
-              lifted={drag?.key ?? null}
-              focus={focus}
-              handlers={handlers}
-              showEmptyHint={!view.empty}
-              scrollTop={place.columns[column.id] ?? 0}
-              onScroll={onScroll}
-              onView={changeView}
-              onAdd={() => {
-                openOverlay("new_ticket");
-              }}
-              foldedSections={foldedSections}
-              doneLine={column.id === lastOpen ? view.done : null}
-              approved={sectionDrag(column, drag)}
-              element={element$}
-            />
-          ))}
-          {covered > 0 && <div className="board-under-panel" style={{ width: covered }} />}
-        </div>
+        {view?.lanes != null ? (
+          <Lanes
+            columns={view.columns}
+            lanes={view.lanes}
+            verdictOf={(id) => (drag ? verdictOf(drag.answer, id) : undefined)}
+            dragging={drag !== null}
+            selected={selected}
+            chain={chain}
+            lifted={drag?.key ?? null}
+            focus={focus}
+            handlers={handlers}
+            laneHandlers={laneHandlers}
+            onView={changeView}
+            onAdd={() => {
+              openOverlay("new_ticket");
+            }}
+            doneLine={view.done}
+            element={element$}
+          />
+        ) : (
+          <div className="board-columns">
+            {view?.columns.map((column) => (
+              <Column
+                key={`${project ?? ""}:${column.id}`}
+                column={column}
+                chipWords={view.scroll_chip}
+                verdict={drag ? verdictOf(drag.answer, column.id) : undefined}
+                dragging={drag !== null}
+                selected={selected}
+                chain={chain}
+                lifted={drag?.key ?? null}
+                focus={focus}
+                handlers={handlers}
+                showEmptyHint={!view.empty}
+                scrollTop={place.columns[column.id] ?? 0}
+                onScroll={onScroll}
+                onView={changeView}
+                onAdd={() => {
+                  openOverlay("new_ticket");
+                }}
+                foldedSections={foldedSections}
+                doneLine={column.id === lastOpen ? view.done : null}
+                approved={sectionDrag(column, drag)}
+                element={element$}
+              />
+            ))}
+            {covered > 0 && <div className="board-under-panel" style={{ width: covered }} />}
+          </div>
+        )}
         {view?.empty && <EmptyBoard view={view.empty} />}
         {project === null && <NoProjects />}
         <ChainLayer chain={chain} board={element} layout={view} />
@@ -1022,7 +1009,7 @@ export function Board() {
             </div>
           )}
           {draggedRow && <LiftedChild row={draggedRow} />}
-          {draggedTrack && <LiftedTrack track={draggedTrack} />}
+          {draggedLane && <LiftedLane lane={draggedLane} />}
           {ghostHint?.kind === "allowed" && ghostHint.hint !== "" && (
             <div className="board-drop-hint">
               <Icon name={ghostHint.icon} size={11} />

@@ -3,12 +3,12 @@ import type { BoardAgentChip } from "./BoardAgentChip";
 import type { BoardColumn } from "./BoardColumn";
 import type { BoardDoneLine } from "./BoardDoneLine";
 import type { BoardEpicFocus } from "./BoardEpicFocus";
+import type { BoardLane } from "./BoardLane";
 import type { BoardMoreStages } from "./BoardMoreStages";
 import type { BoardScrollChip } from "./BoardScrollChip";
 import type { BoardToolbar } from "./BoardToolbar";
 import type { ChainView } from "./ChainView";
 import type { EmptyBoardView } from "./EmptyBoardView";
-import type { EpicStrip } from "./EpicStrip";
 import type { ViewPrefs } from "./ViewPrefs";
 
 /**
@@ -24,10 +24,10 @@ empty: EmptyBoardView | null, scroll_chip: BoardScrollChip,
  */
 chains: Array<ChainView>, 
 /**
- * The "Epics in flight" strip above the columns, while an epic is a track (EPC-10, T-0269); its stations
- * follow `columns`.
+ * Lanes: Epic (EPL-01): one lane per epic across `columns`, "No epic" last; `null` with Lanes: None (and in
+ * the List). The columns keep their headers and counts; their cards are the lanes'.
  */
-strip: EpicStrip | null, 
+lanes: Array<BoardLane> | null, 
 /**
  * The focused epic (an `epic:` filter, EPC-18, Q55): its cards stay, the other cards, tracks and Done lines
  * dim, and ↑↓ walk only its cards.

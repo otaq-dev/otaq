@@ -88,12 +88,11 @@ fn base() -> CardExtras {
     }
 }
 
-/// The sleeve of SHOP-40 Wishlist's child `n` (four children, *04 → Row · epic children & Done (0080)*).
-pub fn wishlist(n: u32, pinned: bool) -> Option<Sleeve> {
+/// The sleeve of a SHOP-40 Wishlist child (*04 → Row · epic children & Done (0080)*).
+pub fn wishlist(pinned: bool) -> Option<Sleeve> {
     Some(Sleeve {
         epic_key: "SHOP-40".into(),
         name: "Wishlist".into(),
-        position: format!("{n} of 4"),
         pinned,
     })
 }
@@ -129,8 +128,8 @@ pub fn variants() -> Vec<Variant> {
         t.epic = Some("SHOP-40".parse().expect("key"));
         t
     };
-    let sleeved = |n: u32| CardExtras {
-        sleeve: wishlist(n, false),
+    let sleeved = || CardExtras {
+        sleeve: wishlist(false),
         ..base()
     };
     let mut out = Vec::new();
@@ -288,14 +287,14 @@ pub fn variants() -> Vec<Variant> {
     t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
     t.flags.conflict_files = vec!["lib/wishlist.ts".into()];
     live(&mut t, 10, 77_000);
-    out.push(v("Merge conflict · fixing (0064)", t, sleeved(4)));
+    out.push(v("Merge conflict · fixing (0064)", t, sleeved()));
 
     let mut t = child("SHOP-40.4", "Wishlist share link", Status::DeliveryStopped);
     t.auto_merge_stop = Some(AutoMergeStop::KeepsConflicting);
     t.auto_merge_conflicts = 3;
     t.flags.conflicts_with = Some(otaq_core::naming::branch("SHOP-40"));
     t.flags.tokens = Some(64_000);
-    out.push(v("Keeps conflicting (0064)", t, sleeved(4)));
+    out.push(v("Keeps conflicting (0064)", t, sleeved()));
 
     let mut t = child("SHOP-40.3", "Wishlist page", Status::Queued);
     t.depends_on = keys(&["SHOP-40.2"]);
@@ -304,7 +303,7 @@ pub fn variants() -> Vec<Variant> {
         t,
         CardExtras {
             waits_for: Some("waits for SHOP-40.2 to merge".into()),
-            ..sleeved(3)
+            ..sleeved()
         },
     ));
 
@@ -321,7 +320,7 @@ pub fn variants() -> Vec<Variant> {
         other: "SHOP-40.4".parse().expect("key"),
         files: vec!["lib/wishlist.ts".into()],
     }];
-    out.push(v("Unread note · same file (0083 · T)", t, sleeved(2)));
+    out.push(v("Unread note · same file (0083 · T)", t, sleeved()));
 
     let mut t = child("SHOP-40.5", "Wishlist empty state", Status::AsksYou);
     live(&mut t, 12, 64_000);
@@ -331,7 +330,7 @@ pub fn variants() -> Vec<Variant> {
         t,
         CardExtras {
             question: Some("Show the empty state on mobile too?".into()),
-            ..sleeved(4)
+            ..sleeved()
         },
     ));
 
@@ -405,7 +404,7 @@ pub fn variants() -> Vec<Variant> {
         round: 1,
     });
     t.flags.merged_automatically = true;
-    out.push(v("Merged automatically (0064)", t, sleeved(1)));
+    out.push(v("Merged automatically (0064)", t, sleeved()));
 
     let mut t = ticket("SHOP-26", "Add sitemap", Status::ClosedNotMerged);
     t.flags.pr_number = Some(481);
@@ -454,7 +453,7 @@ pub fn sleeve_variants() -> Vec<Variant> {
         "Dev · epic child · working",
         t,
         CardExtras {
-            sleeve: wishlist(2, false),
+            sleeve: wishlist(false),
             ..base()
         },
     ));
@@ -465,7 +464,7 @@ pub fn sleeve_variants() -> Vec<Variant> {
         "Dev · epic child · asks you",
         t,
         CardExtras {
-            sleeve: wishlist(2, false),
+            sleeve: wishlist(false),
             question: Some("Show the heart on product cards too?".into()),
             ..base()
         },
@@ -477,7 +476,7 @@ pub fn sleeve_variants() -> Vec<Variant> {
         "Pinned epic · child (no own pin)",
         t,
         CardExtras {
-            sleeve: wishlist(3, true),
+            sleeve: wishlist(true),
             waits_for: Some("waits for SHOP-40.2 to merge".into()),
             waits_for_merge: true,
             ..base()
@@ -492,7 +491,7 @@ pub fn sleeve_variants() -> Vec<Variant> {
         "Ready for Dev · epic child · new",
         t,
         CardExtras {
-            sleeve: wishlist(4, false),
+            sleeve: wishlist(false),
             ..base()
         },
     ));
@@ -802,7 +801,7 @@ pub fn flow_variants() -> Vec<Variant> {
         "Conflicts \u{d7}3 \u{b7} the epic\u{2019}s branch",
         stopped("SHOP-40.4", "Wishlist share link", true),
         CardExtras {
-            sleeve: wishlist(4, false),
+            sleeve: wishlist(false),
             ..base()
         },
     ));
@@ -1202,11 +1201,10 @@ pub fn lead_variants() -> Vec<Variant> {
         t.epic = Some("SHOP-40".parse().expect("key"));
         t
     };
-    let sleeve = |n: u32| CardExtras {
+    let sleeve = || CardExtras {
         sleeve: Some(Sleeve {
             epic_key: "SHOP-40".into(),
             name: "Wishlist".into(),
-            position: format!("{n} of 5"),
             pinned: false,
         }),
         ..base()
@@ -1240,7 +1238,7 @@ pub fn lead_variants() -> Vec<Variant> {
         lead: WISHLIST_LEAD.into(),
         question: "Should the button show a filled heart once the item is saved?".into(),
     });
-    out.push(v("Dev · asked lead · waiting", t, sleeve(2)));
+    out.push(v("Dev · asked lead · waiting", t, sleeve()));
 
     let mut t = child("SHOP-40.2", "Wishlist button", Status::AsksYou);
     live(&mut t, 3 * 60, 106_000);
@@ -1250,7 +1248,7 @@ pub fn lead_variants() -> Vec<Variant> {
         t,
         CardExtras {
             question: Some("Can guests save items without logging in?".into()),
-            ..sleeve(2)
+            ..sleeve()
         },
     ));
 
@@ -1263,7 +1261,7 @@ pub fn lead_variants() -> Vec<Variant> {
         fields: vec!["description".into()],
         waits_for: keys(&["SHOP-40.4"]),
     });
-    out.push(v("Ready for Dev · Updated by Wishlist lead", t, sleeve(3)));
+    out.push(v("Ready for Dev · Updated by Wishlist lead", t, sleeve()));
 
     let mut t = child("SHOP-40.5", "Wishlist empty state", Status::Queued);
     t.created_by = Actor::ProjectAgent("lead-1".into());
@@ -1275,42 +1273,38 @@ pub fn lead_variants() -> Vec<Variant> {
     out.push(v(
         "Ready for Dev · new · added by Wishlist lead",
         t,
-        sleeve(5),
+        sleeve(),
     ));
 
     let mut t = child("SHOP-40.3", "Wishlist page", Status::Working);
     live(&mut t, 20, 141_000);
     t.flags.lead_note_sent = Some(lead_note());
-    out.push(v("Dev · Lead's note sent (round 0 of 3)", t, sleeve(3)));
+    out.push(v("Dev · Lead's note sent (round 0 of 3)", t, sleeve()));
 
     let mut t = child("SHOP-40.4", "Wishlist share link", Status::Working);
     live(&mut t, 40, 71_000);
     t.flags.unread_notes = Some(unread());
-    out.push(v("Dev · 1 unread note from Wishlist lead", t, sleeve(4)));
+    out.push(v("Dev · 1 unread note from Wishlist lead", t, sleeve()));
 
     let mut t = child("SHOP-40.2", "Wishlist button", Status::Working);
     live(&mut t, 20, 118_000);
     t.flags.same_file = same("SHOP-40.4");
-    out.push(v("Dev · same file as SHOP-40.4", t, sleeve(2)));
+    out.push(v("Dev · same file as SHOP-40.4", t, sleeve()));
 
     let mut t = child("SHOP-40.4", "Wishlist share link", Status::Working);
     live(&mut t, 60, 71_000);
     t.flags.same_file = same("SHOP-40.2");
-    out.push(v("Dev · same file as SHOP-40.2", t.clone(), sleeve(4)));
+    out.push(v("Dev · same file as SHOP-40.2", t.clone(), sleeve()));
 
     t.flags.unread_notes = Some(unread());
-    out.push(v("Dev · both on one card", t, sleeve(4)));
+    out.push(v("Dev · both on one card", t, sleeve()));
 
     let mut t = child("SHOP-40.3", "Wishlist page", Status::CheckFailed);
     t.validation_round = 3;
     t.flags.verdict = Some("orders.test.ts expects list".into());
     t.flags.tokens = Some(163_000);
     t.flags.lead_note_sent = Some(lead_note());
-    out.push(v(
-        "Dev · Failed 3 times after the lead's note",
-        t,
-        sleeve(3),
-    ));
+    out.push(v("Dev · Failed 3 times after the lead's note", t, sleeve()));
     out
 }
 

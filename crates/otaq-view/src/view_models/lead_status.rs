@@ -2,8 +2,7 @@
 //! (0083)*): the epic lead's icon, name and state, in two forms.
 //! - **Full form** ("Wishlist lead · re-planning") on the Backlog epic card, in the epic panel, inbox items and
 //!   tooltips.
-//! - **Short form** (icon + state, "answering 40.2") on the lead's own line in the track label, where the epic's
-//!   name is already on the line above.
+//! - **Short form** (icon + state, "answering 40.2") where the epic's name is already said.
 //!
 //! The tone: working states are violet text, idle is quiet (its icon stays violet), "asks you" is turquoise, the
 //! ended states are quiet with a quiet icon. "ended by restart" and "ended" offer **Resume**; an epic with no lead
@@ -18,7 +17,6 @@
 //! lead after a restart*).
 
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::StatusSet;
 use otaq_core::domain::TicketKey;
 use otaq_core::project_agents::lead::{Lead, LeadStatus, lead_name};
 use serde::Serialize;
@@ -409,21 +407,13 @@ pub struct GalleryStatus {
     pub view: LeadStatusView,
 }
 
-/// One track label in the gallery. `LeadGalleryTrack` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "LeadGalleryTrack")]
-pub struct GalleryTrack {
-    pub name: String,
-    pub track: crate::view_models::epic_strip::Track,
-}
-
-/// The gallery's lead rows (T-0289): *Row · Lead Status (0083)* (the full and short forms), *Row · Track Label with
-/// a lead (0083)* and *Row · Epic Card with a lead (0083)*, from SHOP-40 Wishlist. `LeadGallery` on the page.
+/// The gallery's lead rows (T-0289): *Row · Lead Status (0083)* (the full and short forms), the lane heads with a
+/// lead (EPL-01, `s24-06`) and *Row · Epic Card with a lead (0083)*, from SHOP-40 Wishlist. `LeadGallery` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "LeadGallery")]
 pub struct Gallery {
     pub statuses: Vec<GalleryStatus>,
-    pub tracks: Vec<GalleryTrack>,
+    pub lanes: Vec<crate::view_models::lanes::GalleryHead>,
     pub epics: Vec<crate::view_models::card_page::EpicCell>,
 }
 
@@ -431,7 +421,6 @@ pub fn gallery() -> Gallery {
     use crate::view_models::card_fixtures::ticket;
     use crate::view_models::card_page::{EpicCardView, EpicCell};
     use crate::view_models::epic_card::EpicViewModel;
-    use crate::view_models::epic_strip::Strip;
     use otaq_core::domain::{Actor, Kind, Status};
 
     let mut epic = ticket("SHOP-40", "Wishlist", Status::Backlog);
@@ -482,38 +471,12 @@ pub fn gallery() -> Gallery {
         view: LeadStatusView::of_epic(&epic, std::slice::from_ref(&epic), None),
     });
 
-    // The children: 40.1 merged, 40.2 working, 40.3 queued, 40.4 not queued (a track), or all in Backlog (a card).
+    // The children, all in Backlog (a card).
     let child = |key: &str, title: &str, status: Status| {
         let mut t = ticket(key, title, status);
         t.epic = Some(epic.key.clone());
-        t.queued_at = (status.set() != StatusSet::Backlog).then_some(1_000);
         t
     };
-    let in_flight = vec![
-        epic.clone(),
-        child("SHOP-40.1", "Wishlist API", Status::Merged),
-        child("SHOP-40.2", "Wishlist button", Status::Working),
-        child("SHOP-40.3", "Wishlist page", Status::Queued),
-        child("SHOP-40.4", "Wishlist share link", Status::Backlog),
-    ];
-    let tracks = [
-        ("Idle", lead(LeadStatus::Idle)),
-        ("Checking the plan", lead(LeadStatus::CheckingPlan)),
-        ("Re-planning", replanning),
-        ("Answering 40.2", lead(answering)),
-        ("Asks you · whole label", asks.clone()),
-        ("Ended by restart", lead(LeadStatus::EndedByRestart)),
-    ]
-    .into_iter()
-    .filter_map(|(name, l)| {
-        let strip = Strip::with_leads(&in_flight, &otaq_core::flow::default_flow(), &[l])?;
-        Some(GalleryTrack {
-            name: name.to_owned(),
-            track: strip.tracks.into_iter().next()?,
-        })
-    })
-    .collect();
-
     let idle = lead(LeadStatus::Idle);
     let mut backlog = vec![epic.clone()];
     for (key, title) in [
@@ -557,7 +520,7 @@ pub fn gallery() -> Gallery {
     ];
     Gallery {
         statuses,
-        tracks,
+        lanes: crate::view_models::lanes::gallery_heads(),
         epics,
     }
 }
@@ -738,12 +701,8 @@ mod tests {
                 .all(|s| s.view.state != "planning" && !s.name.contains(" planning")),
             "no \"planning\" left (d0091)"
         );
-        assert_eq!(g.tracks.len(), 6);
-        assert!(g.tracks[4].track.lead_asks);
-        assert_eq!(
-            g.tracks[3].track.lead.as_ref().unwrap().short,
-            "answering 40.2"
-        );
+        assert_eq!(g.lanes.len(), 8);
+        assert!(g.lanes[2].head.lead.as_ref().unwrap().asks_you());
         assert_eq!(g.epics.len(), 5);
         let empty = &g.epics[0].card;
         assert!(empty.children.is_empty());
