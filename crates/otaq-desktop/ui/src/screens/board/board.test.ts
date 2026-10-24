@@ -95,6 +95,7 @@ const cardOf = (key: string): BoardCard => ({
     key,
     key_label: key,
     epic: null,
+    priority: null,
     title: key,
     status: null,
     blocks: null,
@@ -453,6 +454,7 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     remove: "Remove the pasted text",
     optional: true,
     limits: { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" },
+    tell_agent: null,
   });
   const sendBack: DragBackDialog = {
     key: "SHOP-19",
@@ -799,6 +801,7 @@ describe("the board screen", () => {
       key,
       key_label: key,
       epic: null,
+      priority: null,
       title: "Child",
       status: null,
       blocks: null,
@@ -938,6 +941,7 @@ describe("the Review column (T-0328, d0087)", () => {
       key,
       key_label: key,
       epic: null,
+      priority: null,
       title: "Checkout API",
       status: null,
       blocks: null,

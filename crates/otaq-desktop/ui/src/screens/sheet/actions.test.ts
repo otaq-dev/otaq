@@ -56,6 +56,8 @@ describe("where buttons and menu items go", () => {
     // Start opens DPV-03's dialog for a blocked ticket (`board.start`).
     expect(actionRoute("start")).toEqual({ kind: "start" });
     expect(actionRoute("answer_in_terminal")).toEqual({ kind: "terminal" });
+    // Send again (d0118): `panel.send_again`, which may ask about unsent text first.
+    expect(actionRoute("send_again")).toEqual({ kind: "send_again" });
     expect(actionRoute("open_agent")).toEqual({ kind: "open_agent" });
     expect(cardRoute("open_agent")).toEqual({ kind: "open_agent" });
     expect(agentSettings("griller")).toEqual({ section: "agents", agent: "griller" });
@@ -85,6 +87,11 @@ describe("where buttons and menu items go", () => {
     expect(actionRoute("answer_agent")).toEqual({ kind: "answer_agent" });
     for (const item of ["stop-validation", "skip-to-review", "validate-and-submit"])
       expect(menuRoute(item)).toEqual({ kind: "service" });
+  });
+
+  it("Stop on a running merge check, in the sheet and on the card (d0120)", () => {
+    expect(actionRoute("stop_merge_check")).toEqual({ kind: "service" });
+    expect(cardRoute("stop_merge_check")).toEqual({ kind: "service" });
   });
 
   it("the … menu's ids from the view models", () => {
